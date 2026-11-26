@@ -11,9 +11,9 @@ const schema = z.object({
    * openRMS-Accounts issuer(s) whose tokens are trusted, comma-separated (identity.md §1).
    * Development may add the test issuer (scripts/dev-issuer.ts, http://localhost:8799). Never in production.
    */
-  OPENRMS_ISSUER: z.string().default("https://auth.openrms.dev"),
+  OPENRMS_ISSUER: z.string().default("http://localhost:8789"),
   /** This service's audience: tokens must be issued for it (identity.md §3). */
-  DIRECTORY_AUDIENCE: z.string().default("https://directory.openrms.dev"),
+  DIRECTORY_AUDIENCE: z.string().default("http://localhost:8787"),
   /** Shared secret for Accounts webhooks (identity.md §7). Webhooks are refused when unset. */
   ACCOUNTS_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** The Directory's OAuth client at Accounts (client credentials), for the timed reconcile. */

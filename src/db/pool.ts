@@ -6,6 +6,10 @@ pg.types.setTypeParser(20, (v) => Number(v));
 
 export const pool = new pg.Pool({ connectionString: env.DATABASE_URL, max: 10 });
 
+// Idle connections can be closed by the server (restarts, serverless scale-to-zero). Log and let
+// the pool reconnect instead of crashing the process.
+pool.on("error", (e) => console.error("[db] idle client error:", e.message));
+
 export async function q<T extends pg.QueryResultRow = any>(text: string, params: unknown[] = []) {
   return pool.query<T>(text, params);
 }

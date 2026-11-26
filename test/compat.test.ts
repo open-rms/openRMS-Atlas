@@ -32,7 +32,7 @@ const fixtureNow = new Date(Math.max(...fixture.Gateways.map((g: any) => new Dat
 const query = { mode: "AnyAll" as const, historyHours: 48, serviceCodes: ["PUBLIC"], extensions: false };
 
 describe("Winlink mode parsing", () => {
-  it("maps every SupportedModes string in the live sample to a known modem", () => {
+  it("maps every SupportedModes string in the sample to a known modem", () => {
     const unknown = fixture.Gateways.flatMap((g: any) => g.GatewayChannels)
       .filter((c: any) => c.SupportedModes !== "Unknown")
       .filter((c: any) => parseWinlinkModes(c.SupportedModes, c.ServiceCode).modem === "other");
@@ -110,7 +110,7 @@ describe("compat feed", () => {
     };
     const ours = run(stringifyWinlink(toWinlinkStatus(fromWinlink(fixture), { ...query, historyHours: 10_000 }, fixtureNow)));
     const theirs = run(JSON.stringify(fixture));
-    expect(ours.split("\n").length).toBeGreaterThan(4000);
+    expect(ours.split("\n").length).toBeGreaterThan(fixture.Gateways.length);
     expect(ours).toBe(theirs);
   });
 });

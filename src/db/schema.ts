@@ -169,7 +169,7 @@ export const watcher = pgTable(
     gridsquare: text(),
     locationPrecision: text("location_precision").default("grid4").notNull(),
     public: boolean().default(true).notNull(),
-    apiKeyId: text("api_key_id"),
+    apiKeyId: text("api_key_id"), // retired: ormsw_ key (read-only); keys bind through watcher_key now
     disabled: boolean().default(false).notNull(),
     disabledReason: text("disabled_reason"),
     lastSeenAt: ts("last_seen_at"),
@@ -278,8 +278,8 @@ export const accountEvent = pgTable("account_event", {
 });
 
 /**
- * Service-owned API keys (identity.md §5). The kind is fixed at creation. Hash is
- * base64url(sha256(key)) unpadded, the same as Better Auth's, so earlier keys imported as-is.
+ * Retired: Atlas's own orms_/ormsw_ keys (before Accounts minted keys, identity.md §5.6).
+ * Read-only; nothing writes or accepts these any more. Dropped in a later migration.
  */
 export const apiKey = pgTable("api_key", {
   id: text().primaryKey(),
@@ -301,4 +301,39 @@ export const apiKey = pgTable("api_key", {
   uniqueIndex("api_key_hash").on(t.hash),
   index("api_key_owner").on(t.ownerSub),
   check("api_key_kind_check", sql`kind = ANY (ARRAY['gateway'::text, 'watcher'::text])`),
+]);
+
+/**
+ * Revoked Accounts API keys (identity.md §5.5), persisted so a restart never forgets one.
+ * `source` = how Atlas learned of it: "pull" rows set the sync cursor, so a webhook row can't
+ * move it past a revocation the pull hasn't seen. Rows are pruned once the key has expired.
+ */
+export const revokedKey = pgTable("revoked_key", {
+  jti: text().primaryKey(),
+  sub: text().notNull(),
+  exp: ts("exp").notNull(),
+  revokedAt: ts("revoked_at").notNull(),
+  source: text().notNull(),
+}, (t) => [
+  index("revoked_key_exp").on(t.exp),
+  index("revoked_key_pull").on(t.revokedAt).where(sql`source = 'pull'`),
+  check("revoked_key_source_check", sql`source = ANY (ARRAY['pull'::text, 'webhook'::text])`),
+]);
+
+/**
+ * Which watcher an Accounts key (watch:ingest) uploads for, recorded at POST /watch/link
+ * (identity.md §5.6, Atlas's choice: keys carry no watcher claim). A revoked key's row stays as
+ * a tombstone until the key's exp, so its renewal (`replaces`) can still find the watcher even
+ * when the revocation arrives first.
+ */
+export const watcherKey = pgTable("watcher_key", {
+  jti: text().primaryKey(),
+  watcherId: uuid("watcher_id").notNull(),
+  ownerSub: text("owner_sub").notNull(),
+  keyExp: ts("key_exp").notNull(),
+  revokedAt: ts("revoked_at"),
+  createdAt: ts("created_at").defaultNow().notNull(),
+}, (t) => [
+  foreignKey({ columns: [t.watcherId], foreignColumns: [watcher.id], name: "watcher_key_watcher_id_fkey" }).onDelete("cascade"),
+  index("watcher_key_watcher").on(t.watcherId),
 ]);

@@ -7,8 +7,8 @@ import { q, tx } from "../db/pool.js";
 import { invalidateDirectory, loadDirectory } from "../data.js";
 import { splitGatewayCallsign } from "../lib/callsign.js";
 import { canManageGateway, managedCallsigns, type ManagedCallsign } from "../lib/access.js";
-import { optionalViewer, requireViewer, type Viewer, type ViewerVars } from "../lib/identity.js";
-import { createKey, listKeys, revokeKey, verifyKey } from "../lib/keys.js";
+import { optionalViewer, requireKey, requireSignedIn, requireViewer, type Viewer, type ViewerVars } from "../lib/identity.js";
+import { accountsKeys, keysConfigured, keysManageUrl, type KeyScope } from "../lib/apikeys.js";
 import { can, permissionsOf, roleOf } from "../rbac.js";
 import { claimDetailsInput, gatewayInput, heartbeatInput, type GatewayInput } from "./validation.js";
 
@@ -17,7 +17,20 @@ export const ownerRoutes = new Hono<ViewerVars>();
 // Staff whose role grants gateway:edit-any may manage any listing (src/rbac.ts).
 const isStaffEditor = (v: Viewer) => can(v.role, { gateway: ["edit-any"] });
 
-ownerRoutes.use("/me/*", requireViewer);
+/**
+ * Which API-key scopes may call a /me route (identity.md §5.2). Everything not listed takes
+ * sign-in only: claims, releases, watchers, the key list.
+ */
+export function meKeyScopes(method: string, path: string): KeyScope[] {
+  const p = path.replace(/^.*?\/me(?=\/|$)/, "/me");
+  if (p === "/me/gateways") return method === "GET" ? ["gateways:read"] : method === "POST" ? ["gateways:write"] : [];
+  if (/^\/me\/gateways\/[^/]+$/.test(p)) return method === "PUT" || method === "DELETE" ? ["gateways:write"] : [];
+  if (/^\/me\/gateways\/[^/]+\/details$/.test(p)) return method === "PUT" ? ["gateways:write"] : [];
+  if (/^\/me\/gateways\/[^/]+\/confirm$/.test(p)) return method === "POST" ? ["heartbeat", "gateways:write"] : [];
+  return [];
+}
+
+ownerRoutes.use("/me/*", (c, next) => requireViewer({ keyScopes: meKeyScopes(c.req.method, c.req.path) })(c, next));
 
 ownerRoutes.get("/me", async (c) => {
   const v = await optionalViewer(c);
@@ -234,33 +247,25 @@ ownerRoutes.delete("/me/gateways/:id", async (c) => {
   return c.body(null, 204);
 });
 
-// ── Gateway keys (orms_), owned by Atlas (identity.md §5) ───────────────────────
+// ── API keys: minted and managed at Accounts (identity.md §5.3) ────────────────
 
+/** The caller's Atlas keys, listed by Accounts, with the page that manages them. */
 ownerRoutes.get("/me/keys", async (c) => {
-  const keys = await listKeys(c.get("viewer").sub, "gateway");
-  return c.json({
-    keys: keys.map((k) => ({ id: k.id, name: k.name, start: k.start, gatewayIds: k.gateway_ids, lastUsedAt: k.last_used_at, createdAt: k.created_at })),
-  });
-});
-
-const keyInput = z.object({ name: z.string().trim().min(1).max(60), gatewayIds: z.array(z.uuid()).max(64).nullish() });
-
-ownerRoutes.post("/me/keys", async (c) => {
-  const v = c.get("viewer");
-  const p = keyInput.safeParse(await c.req.json().catch(() => null));
-  if (!p.success) return c.json({ error: "name is required", issues: p.error.issues }, 400);
-  for (const id of p.data.gatewayIds ?? []) {
-    if (!(await ownedGateway(v, id))) return c.json({ error: `gateway ${id} is not yours` }, 403);
+  if (!keysConfigured()) return c.json({ keys: [], manage: keysManageUrl(), error: "key list unavailable (Atlas has no Accounts client)" });
+  try {
+    return c.json(await accountsKeys(c.get("viewer").sub));
+  } catch (e) {
+    console.error(`[keys] list failed: ${e}`);
+    return c.json({ keys: [], manage: keysManageUrl(), error: "Accounts didn't answer; try again shortly" }, 502);
   }
-  const k = await createKey({ kind: "gateway", ownerSub: v.sub, name: p.data.name, gatewayIds: p.data.gatewayIds ?? null });
-  return c.json({ id: k.id, key: k.key }, 201);
 });
 
-ownerRoutes.delete("/me/keys/:id", async (c) => {
-  return (await revokeKey(c.req.param("id"), c.get("viewer").sub)) ? c.body(null, 204) : c.json({ error: "not found" }, 404);
-});
+const minted = (c: import("hono").Context) =>
+  c.json({ error: `API keys are made at openRMS Accounts now: ${keysManageUrl()} (pick Atlas and the scopes you need)`, manage: keysManageUrl() }, 410);
+ownerRoutes.post("/me/keys", minted);
+ownerRoutes.delete("/me/keys/:id", minted);
 
-ownerRoutes.post("/gateways/:id/report", requireViewer, async (c) => {
+ownerRoutes.post("/gateways/:id/report", requireSignedIn, async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
   const reason = String(body.reason ?? "").trim().slice(0, 1000);
   if (!reason) return c.json({ error: "reason is required" }, 400);
@@ -273,18 +278,14 @@ ownerRoutes.post("/gateways/:id/report", requireViewer, async (c) => {
 });
 
 /**
- * Heartbeat from gateway software, authenticated with a gateway key (x-api-key, orms_).
- * The key's owner must be able to manage the gateway (own listing, or a member of its club).
- * A key limited to certain gateways only works for those.
+ * Heartbeat from gateway software, with an Accounts API key holding `heartbeat`
+ * (Authorization: Bearer ormk_…, or x-api-key). The key's owner must be able to manage the
+ * gateway (own listing, or a member of its club).
  */
-ownerRoutes.post("/gateways/:id/heartbeat", async (c) => {
-  const raw = c.req.header("x-api-key") ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "");
-  const v = await verifyKey(raw, "gateway");
-  if (!v.ok) return c.json({ error: v.error }, v.status, v.retryAfter ? { "Retry-After": String(v.retryAfter) } : {});
+ownerRoutes.post("/gateways/:id/heartbeat", requireKey("heartbeat"), async (c) => {
   const { rows } = await q(`SELECT id, owner_sub, owner_club_id FROM gateway WHERE id = $1 AND source = 'openrms'`, [c.req.param("id")]);
   const g = rows[0];
-  if (!g || !(await canManageGateway({ sub: v.key.owner_sub }, g))) return c.json({ error: "not found" }, 404);
-  if (v.key.gateway_ids && !v.key.gateway_ids.includes(g.id)) return c.json({ error: "key not allowed for this gateway" }, 403);
+  if (!g || !(await canManageGateway({ sub: c.get("viewer").sub }, g))) return c.json({ error: "not found" }, 404);
   const parsed = heartbeatInput.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: "invalid heartbeat", issues: parsed.error.issues }, 400);
   const hb = parsed.data;

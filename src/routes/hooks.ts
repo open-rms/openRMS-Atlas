@@ -2,6 +2,7 @@
 // Atlas-side effects of identity changes. Each event id is applied once.
 import { Hono } from "hono";
 import { verifyWebhook, type AccountsEvent } from "@openrms/service-auth";
+import { storeRevoked } from "../lib/apikeys.js";
 import { q, tx } from "../db/pool.js";
 import { env } from "../env.js";
 import { invalidateDirectory } from "../data.js";
@@ -78,8 +79,9 @@ async function apply(e: AccountsEvent) {
       }
       case "user.deleted": {
         const u = userOf(d);
-        await db.query(`UPDATE api_key SET revoked_at = now() WHERE owner_sub = $1 AND revoked_at IS NULL`, [u.sub]);
-        await db.query(`UPDATE watcher SET disabled = true, disabled_reason = 'account deleted', api_key_id = NULL WHERE owner_sub = $1`, [u.sub]);
+        // Accounts revokes the account's keys too (key.revoked); unbind its watchers now.
+        await db.query(`DELETE FROM watcher_key WHERE owner_sub = $1`, [u.sub]);
+        await db.query(`UPDATE watcher SET disabled = true, disabled_reason = 'account deleted' WHERE owner_sub = $1`, [u.sub]);
         await db.query(
           `UPDATE gateway SET hidden = true, hidden_reason = 'owner account deleted' WHERE source = 'openrms' AND owner_sub = $1 AND owner_club_id IS NULL`,
           [u.sub],
@@ -163,6 +165,13 @@ hookRoutes.post("/accounts", async (c) => {
     return c.json({ error: (err as Error).message }, 401);
   }
   if (!e.id || !e.type) return c.json({ error: "event needs id and type" }, 400);
+  if (e.type === "key.revoked") {
+    // Fast path of the denylist (identity.md §5.5); idempotent, so no event bookkeeping needed.
+    const d = e.data as { jti?: string; sub?: string; exp?: number };
+    if (!d.jti || !d.sub || typeof d.exp !== "number") return c.json({ error: "malformed key.revoked" }, 400);
+    await storeRevoked([{ jti: d.jti, sub: d.sub, exp: d.exp, revoked_at: e.createdAt ?? new Date().toISOString() }], "webhook");
+    return c.json({ ok: true });
+  }
   await apply(e);
   invalidateDirectory();
   invalidateSightings();

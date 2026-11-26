@@ -27,12 +27,13 @@ pnpm test                     # unit tests, including the real `pat` binary when
 
 # Smoke tests use a local test issuer instead of Accounts (trusted only in development):
 pnpm exec tsx --env-file=.env scripts/dev-issuer.ts &   # :8799
-scripts/smoke.sh              # gateways, keys, heartbeats, compat feed, claims, clubs (33)
-scripts/identity-smoke.sh     # tokens, staff permissions, webhooks, bans, callsign changes (31)
-scripts/watch-smoke.sh        # watcher keys, ingest, callsign list, moderation (26)
+scripts/smoke.sh              # gateways, keys, heartbeats, compat feed, claims, clubs (32)
+scripts/keys-smoke.sh         # API keys: route × credential, scopes, denylist, bans, staff, RFC 9728 (43)
+scripts/identity-smoke.sh     # tokens, staff permissions, webhooks, bans, callsign changes (32)
+scripts/watch-smoke.sh        # watcher keys, renewal, ingest, callsign list, moderation (32)
 scripts/watch-b-smoke.sh      # sightings, heardOnAir, contributors (17)
 scripts/watch-c-smoke.sh      # events, live stream, client-callsign privacy (15)
-scripts/watch-d-smoke.sh      # watcher linking with a device-flow token (10)
+scripts/watch-d-smoke.sh      # linking a watch:ingest key to a watcher (13)
 scripts/servicecode-smoke.sh  # custom service codes, unlisted visibility, staff promotion, search demand (34)
 ```
 
@@ -52,17 +53,18 @@ expected.
 | `GET\|POST /gateway/status.json` | **Winlink-compatible** (same keys and parameters as api.winlink.org) |
 | `GET /export/pat/rmslist.json` | the same feed, as a file for Pat's cache |
 | `/api/v1/me/gateways` | list, create, update, delete, confirm your own and your clubs' gateways (Bearer token) |
-| `/api/v1/me/keys` | your gateway keys (`orms_`): create (optionally limited to some gateways), list, revoke |
-| `/api/v1/me/watchers`, `…/{id}/key` | your openRMS-Watch receivers and their `ormsw_` upload keys (minted server-side, one per watcher) |
+| `GET /api/v1/me/keys` | your Atlas API keys, listed by openRMS Accounts, and the Accounts page that makes and revokes them |
+| `/api/v1/me/watchers` | your openRMS-Watch receivers (`DELETE …/{id}/key` unlinks its keys) |
 | `POST /api/v1/watch/ingest` | watcher NDJSON upload (frame, attempt, coverage, status; idempotent by event id) |
 | `GET /api/v1/watch/sightings` | stations heard on the air, matched to listings (`unique`/`ambiguous`/`unknown`), `single`/`confirmed`/`called` |
 | `GET /api/v1/watch/contributors?days=7` | public watchers active recently, with listening hours, bands, live flag |
 | `GET /api/v1/watch/events`, `GET /api/v1/watch/stream` (SSE) | public projection of watcher frames; client callsigns per the admin toggle and opt-out list |
-| `POST /api/v1/watch/link` | watcher linking: with its device-flow token (device flow at Accounts), pick or create a watcher and get its `ormsw_` key |
+| `POST /api/v1/watch/link` | watcher linking: a `watch:ingest` key binds itself to a new or existing watcher |
+| `GET /.well-known/oauth-protected-resource` | RFC 9728 metadata: the key scopes an Atlas key may carry |
 | `POST /api/v1/hooks/accounts` | Accounts webhooks (signed), keeping the local account cache current |
 | `GET /api/v1/watch/callsigns` | every listed callsign with its Mercury CRC16 and all Mercury dial frequencies (ETag) |
 | `/api/v1/me/claimable`, `/api/v1/me/gateways/{id}/claim\|details\|release` | claim a Winlink listing under your callsign and add comments, software, emcomm readiness |
-| `POST /api/v1/gateways/{id}/heartbeat` | gateway software, `x-api-key` |
+| `POST /api/v1/gateways/{id}/heartbeat` | gateway software, API key with `heartbeat` |
 | `/api/v1/admin/*` | staff (role from the token): hide listings, reports, imports, watchers, settings, opt-outs, audit log |
 | `/docs` | Swagger UI |
 
@@ -79,8 +81,14 @@ expected.
   timed reconcile over Accounts' service API.
 - A gateway's base callsign must be the caller's callsign or one of their clubs' (any SSID).
   Staff with `gateway:edit-any` are exempt.
-- Keys are Atlas's own (`api_key`): kind fixed at creation, stored hashed, per-kind hourly
-  rate limit, refused while the owner is banned. A key limited to some gateways only works for those.
+- **API keys** (`ormk_`) are minted at openRMS Accounts and verified here offline
+  (identity.md §5). Keys are refused unless a route names the scopes it takes (`heartbeat`,
+  `watch:ingest`, `gateways:read`, `gateways:write`); staff and account routes never take one.
+  Revoked keys are kept in `revoked_key` (from the `key.revoked` webhook, and a pull at start
+  and every 5 minutes), a banned owner's keys stop at once, each key has an hourly limit, and
+  last use is reported to Accounts every 5 minutes. A watcher key uploads for the watcher it
+  linked to (`watcher_key`); a renewal (`replaces`) takes over that watcher. The old
+  Atlas-minted `orms_`/`ormsw_` keys are retired (`api_key` stays read-only for now).
 - Every row has `source` = `openrms` or `winlink`. A listing by a **verified** owner replaces
   the Winlink copy of the same callsign. An unverified one is shown next to it
   (`unverifiedConflict`) and kept out of the compat feed. `WINLINK_PUBLISH=false` drops Winlink
@@ -95,7 +103,7 @@ expected.
   claims; `club.member_removed` ends that member's access at once.
 - A callsign change (`user.updated`) hides the account's personal listings under the old
   callsign and releases its personal Winlink claims; `user.banned` blocks its API use and keys;
-  `user.deleted` revokes its keys and hides its listings.
+  `user.deleted` unlinks its watchers' keys and hides its listings (Accounts revokes the keys).
 - The Winlink import refuses a response that is empty or less than half the previous run
   (`pnpm cli import-winlink --force` overrides).
 - Compat feed: Mercury, XARA and Data2G appear as `VARA` under service codes `MERCURY`, `XARA` and `DATA2G` (never `PUBLIC`). The Winlink import requests those codes too.

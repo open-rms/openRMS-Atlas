@@ -2,6 +2,28 @@
 
 Notable changes to the Atlas API and feeds. The contract lives in openRMS-Spec `atlas/`.
 
+## 2026-11-26 (API keys from Accounts)
+
+### Changed (breaking)
+- API keys are minted by openRMS Accounts (`ormk_…`, identity.md §5) and verified here. Atlas's
+  own `orms_` and `ormsw_` keys stop working; production had none.
+- `POST /api/v1/gateways/{id}/heartbeat` takes a key with `heartbeat` (Authorization: Bearer or
+  x-api-key). Keys limited to some gateways (`gatewayIds`) no longer exist; a key works for every
+  gateway its owner can manage.
+- `POST /api/v1/watch/link` takes a `watch:ingest` key and binds it to the watcher; it no longer
+  returns a key. Ingest needs a linked key (403 `not_linked` otherwise).
+- `POST /api/v1/me/keys`, `DELETE /api/v1/me/keys/{id}` and `POST /api/v1/me/watchers/{id}/key`
+  return 410 with the Accounts keys page. `GET /api/v1/me/keys` lists the caller's Atlas keys from
+  Accounts. `DELETE /api/v1/me/watchers/{id}/key` unlinks keys instead of revoking.
+
+### Added
+- Key scopes per route: `gateways:read` (GET /me/gateways), `gateways:write` (create, edit,
+  delete listings and details), `heartbeat` (heartbeat, still-on-air confirm), `watch:ingest`.
+  Wrong scope: 403 with `WWW-Authenticate: Bearer error="insufficient_scope"`.
+- `GET /.well-known/oauth-protected-resource` (RFC 9728) with `openrms_key_scopes`.
+- Persisted key denylist (migration 0006 `revoked_key`, `watcher_key`), fed by `key.revoked` and a
+  pull every 5 minutes; last use reported to Accounts in batches.
+
 ## 2026-11-26 (later)
 
 ### Changed (behavior)

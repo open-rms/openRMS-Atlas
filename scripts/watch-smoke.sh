@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Watcher feed phase A against a running dev server: watchers, ormsw_ keys, NDJSON ingest,
+# Watcher feed phase A against a running dev server: watchers, Accounts watch:ingest keys, NDJSON ingest,
 # /watch/callsigns, moderation. Throwaway accounts N0WAT (watcher owner), N0WMD (moderator).
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -11,9 +11,9 @@ as N0WAT N0WAT; as N0WMD N0WMD '{"role":"moderator"}'
 echo "== watcher and key"
 W=$(curl -s -H @$T/N0WAT "${J[@]}" -X POST $B/api/v1/me/watchers -d '{"name":"shack-hackrf","gridsquare":"DN16ra","locationPrecision":"grid4"}' | jq -r .id)
 check "watcher created" "true" "$([ -n "$W" ] && [ "$W" != null ] && echo true)"
-K=$(curl -s -H @$T/N0WAT "${J[@]}" -X POST $B/api/v1/me/watchers/$W/key | jq -r .key)
-check "minted key has ormsw_ prefix" "ormsw_" "${K:0:6}"
-GK=$(curl -s -H @$T/N0WAT "${J[@]}" -X POST $B/api/v1/me/keys -d '{"name":"gw"}' | jq -r .key)
+K=$(wkey N0WAT $W); KJ=$(cat $T/N0WAT.jti)
+check "key linked: watcher shows hasKey" true "$(curl -s -H @$T/N0WAT $B/api/v1/me/watchers | jq '.watchers[0].hasKey')"
+GK=$(key N0WAT heartbeat)
 
 NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000Z); FUT=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%S.000Z); END=$(date -u -d '+20 seconds' +%Y-%m-%dT%H:%M:%S.000Z)
 cat > $T/batch.ndjson <<NDJ
@@ -34,7 +34,7 @@ check "6 accepted (incl. one with null optional fields)" 6 "$(echo "$R" | jq .ac
 check "3 rejected (not JSON, future, out of band)" 3 "$(echo "$R" | jq '.rejected|length')"
 R=$(ing "$K" $T/batch.ndjson)
 check "re-post is idempotent: 6 duplicates, 0 accepted" "6/0" "$(echo "$R" | jq -r '"\(.duplicate)/\(.accepted)"')"
-check "a gateway key is refused at ingest" 401 "$(code -H "x-api-key: $GK" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
+check "a heartbeat key is refused at ingest (scope)" 403 "$(code -H "x-api-key: $GK" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
 check "no key: 401" 401 "$(code --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
 seq 1 5001 | sed 's/.*/{}/' > $T/big.ndjson
 check "over 5000 lines: 413" 413 "$(code -H "x-api-key: $K" --data-binary @$T/big.ndjson $B/api/v1/watch/ingest)"
@@ -42,8 +42,8 @@ check "watcher status stored" "HackRF One" "$(curl -s -H @$T/N0WAT $B/api/v1/me/
 
 echo "== a watcher key never works as a gateway key"
 GW=$(curl -s -H @$T/N0WAT "${J[@]}" -X POST $B/api/v1/me/gateways -d '{"callsign":"N0WAT-10","gridsquare":"DN16ra","channels":[{"frequencyKhz":7101.5,"modem":"mercury"},{"frequencyKhz":10145.5,"modem":"mercury"},{"frequencyKhz":3590,"modem":"ardop","variant":"2000"}]}' | jq -r .id)
-check "watcher key on heartbeat is refused" 401 "$(code -H "x-api-key: $K" -X POST $B/api/v1/gateways/$GW/heartbeat)"
-check "gateway key on heartbeat still works" 200 "$(code -H "x-api-key: $GK" -X POST $B/api/v1/gateways/$GW/heartbeat)"
+check "watcher key on heartbeat is refused (scope)" 403 "$(code -H "x-api-key: $K" -X POST $B/api/v1/gateways/$GW/heartbeat)"
+check "heartbeat key on heartbeat works" 200 "$(code -H "x-api-key: $GK" -X POST $B/api/v1/gateways/$GW/heartbeat)"
 
 echo "== /watch/callsigns"
 sleep 0.3
@@ -54,18 +54,26 @@ check "Winlink rows included (WINLINK_PUBLISH on)" true "$(jq '[.[]|select(.sour
 ET=$(grep -i '^etag:' $T/h | cut -d' ' -f2 | tr -d '\r')
 check "ETag: 304 when unchanged" 304 "$(code -H "If-None-Match: $ET" $B/api/v1/watch/callsigns)"
 
-echo "== rotation, moderation, revocation"
-K2=$(curl -s -H @$T/N0WAT "${J[@]}" -X POST $B/api/v1/me/watchers/$W/key | jq -r .key)
-check "old key rejected after rotation" 401 "$(code -H "x-api-key: $K" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
-check "new key accepted" 200 "$(code -H "x-api-key: $K2" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
+echo "== renewal, moderation, revocation"
+K2=$(key N0WAT watch:ingest "{\"replaces\":\"$KJ\",\"renewable\":true}"); K2J=$(cat $T/N0WAT.jti)
+check "renewed key (replaces) uploads at once, before the revocation" 200 "$(code -H "x-api-key: $K2" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
+check "old key revoked (renewal)" 200 "$(revoke $KJ sub-N0WAT)"
+check "old key rejected" 401 "$(code -H "x-api-key: $K" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
+check "renewed key still accepted" 200 "$(code -H "x-api-key: $K2" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
+check "revocation first, then renewal: revoke K2 is fine, K3 replaces K2" 200 "$(revoke $K2J sub-N0WAT)"
+K3=$(key N0WAT watch:ingest "{\"replaces\":\"$K2J\",\"renewable\":true}")
+check "renewal after its old key's revocation still finds the watcher" 200 "$(code -H "x-api-key: $K3" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
+check "a key that replaces another account's key gets nothing" 403 "$(code -H "x-api-key: $(key N0WMD watch:ingest "{\"replaces\":\"$K2J\"}")" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
+check "an unlinked key: 403 not_linked" not_linked "$(curl -s -H "x-api-key: $(key N0WAT watch:ingest)" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest | jq -r .code)"
+K2=$K3
 check "moderator disables the watcher" 200 "$(code -H @$T/N0WMD "${J[@]}" -X POST $B/api/v1/admin/watchers/$W/disable -d '{"reason":"test"}')"
 check "disabled watcher: 403" 403 "$(code -H "x-api-key: $K2" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
 check "moderator re-enables" 200 "$(code -H @$T/N0WMD "${J[@]}" -X POST $B/api/v1/admin/watchers/$W/disable -d '{"disabled":false}')"
 check "moderator cannot change site settings" 403 "$(code -H @$T/N0WMD "${J[@]}" -X PUT $B/api/v1/admin/settings/publish_client_callsigns -d '{"value":true}')"
 check "moderator manages the opt-out list" 201 "$(code -H @$T/N0WMD "${J[@]}" -X POST $B/api/v1/admin/optouts -d '{"callsign":"K7TEST","reason":"asked by holder"}')"
 check "moderator purges the watcher's events" 6 "$(curl -s -H @$T/N0WMD -X POST $B/api/v1/admin/watchers/$W/purge | jq .deleted)"
-check "owner revokes the key" 204 "$(code -H @$T/N0WAT -X DELETE $B/api/v1/me/watchers/$W/key)"
-check "revoked key: 401" 401 "$(code -H "x-api-key: $K2" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
+check "owner unlinks the watcher's keys" 204 "$(code -H @$T/N0WAT -X DELETE $B/api/v1/me/watchers/$W/key)"
+check "unlinked key: 403" 403 "$(code -H "x-api-key: $K2" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
 check "publish_client_callsigns defaults to off" false "$(curl -s -H @$T/N0WMD $B/api/v1/admin/settings | jq '.settings[]|select(.key=="publish_client_callsigns")|.value')"
 
 psql "$DB" -qc "DELETE FROM callsign_optout WHERE callsign='K7TEST'" >/dev/null

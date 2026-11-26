@@ -11,7 +11,7 @@ as N0WBA N0WBA '{"callsign_verified":true}'; as N0WBB N0WBB '{"callsign_verified
 clean
 GA=$(curl -s -H @$T/N0WBA "${J[@]}" -X POST $B/api/v1/me/gateways -d '{"callsign":"N0WBA-10","gridsquare":"DN16ra","channels":[{"frequencyKhz":7101.5,"modem":"mercury"}]}' | jq -r .id)
 GC=$(curl -s -H @$T/N0WBC "${J[@]}" -X POST $B/api/v1/me/gateways -d '{"callsign":"N0WBC-10","gridsquare":"DN17","channels":[{"frequencyKhz":10145.5,"modem":"mercury"}]}' | jq -r .id)
-mkkey() { local w; w=$(curl -s -H @$T/$1 "${J[@]}" -X POST $B/api/v1/me/watchers -d "{\"name\":\"$1-sdr\",\"gridsquare\":\"DN16ab\",\"locationPrecision\":\"$2\",\"public\":$3}" | jq -r .id); curl -s -H @$T/$1 "${J[@]}" -X POST $B/api/v1/me/watchers/$w/key | jq -r .key; }
+mkkey() { local w; w=$(curl -s -H @$T/$1 "${J[@]}" -X POST $B/api/v1/me/watchers -d "{\"name\":\"$1-sdr\",\"gridsquare\":\"DN16ab\",\"locationPrecision\":\"$2\",\"public\":$3}" | jq -r .id); wkey $1 $w; }
 KA=$(mkkey N0WBA grid6 true); KB=$(mkkey N0WBB grid4 true); KC=$(mkkey N0WBC hidden false)
 NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000Z); END=$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%S.000Z); START=$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%S.000Z)
 CA=$(crc N0WBA-10); CC=$(crc N0WBC-10)

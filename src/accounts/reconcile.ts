@@ -9,23 +9,28 @@ interface RemoteUser {
   role: string; banned: boolean; clubs: { id: string; callsign: string; role: string; verified: boolean }[];
 }
 
-const issuer = () => env.OPENRMS_ISSUER.split(",")[0]!.trim().replace(/\/+$/, "");
-let token: { value: string; exp: number } | null = null;
+export const issuer = () => env.OPENRMS_ISSUER.split(",")[0]!.trim().replace(/\/+$/, "");
+const tokens = new Map<string, { value: string; exp: number }>();
 
-async function serviceToken(): Promise<string> {
-  if (token && token.exp > Date.now() + 60_000) return token.value;
+/** Atlas's client-credentials token at Accounts, cached per scope ("" = the client's default). */
+export async function serviceToken(scope = ""): Promise<string> {
+  const hit = tokens.get(scope);
+  if (hit && hit.exp > Date.now() + 60_000) return hit.value;
+  const body = new URLSearchParams({ grant_type: "client_credentials", resource: issuer() });
+  if (scope) body.set("scope", scope);
   const res = await fetch(`${issuer()}/api/auth/oauth2/token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       Authorization: `Basic ${Buffer.from(`${env.ACCOUNTS_CLIENT_ID}:${env.ACCOUNTS_CLIENT_SECRET}`).toString("base64")}`,
     },
-    body: new URLSearchParams({ grant_type: "client_credentials", resource: issuer() }),
+    body,
   });
   if (!res.ok) throw new Error(`Accounts token: HTTP ${res.status}`);
   const j = (await res.json()) as { access_token: string; expires_in?: number };
-  token = { value: j.access_token, exp: Date.now() + (j.expires_in ?? 600) * 1000 };
-  return token.value;
+  const t = { value: j.access_token, exp: Date.now() + (j.expires_in ?? 600) * 1000 };
+  tokens.set(scope, t);
+  return t.value;
 }
 
 export async function reconcileAccounts(): Promise<number> {

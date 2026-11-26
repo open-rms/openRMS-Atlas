@@ -1,10 +1,14 @@
-// Who is calling: Accounts-issued access tokens (identity.md §3), verified offline against the
-// issuer's JWKS, plus the local account cache (§7) for facts a token can't be trusted for
-// (bans, club membership removed since the token was issued).
+// Who is calling: Accounts-issued access tokens (identity.md §3) and API keys (§5), verified
+// offline against the issuer's JWKS, plus the local account cache (§7) for facts a token can't
+// be trusted for (bans, club membership removed since the token was issued).
+//
+// Keys are refused everywhere by default. A route accepts one only by naming the key scopes
+// that may call it (requireViewer({ keyScopes }) or requireKey). Staff routes never do (§5.2).
 import type { Context, MiddlewareHandler } from "hono";
-import { bearerToken, TokenError, verifyAccessToken, type AccessClaims, type ClubRole } from "@openrms/service-auth";
+import { bearerToken, KEY_PREFIX, TokenError, verifyBearer, type AccessClaims, type ClubRole } from "@openrms/service-auth";
 import { q, tx } from "../db/pool.js";
 import { env } from "../env.js";
+import { isRevoked, noteKeyUse, rateLimit, type KeyScope } from "./apikeys.js";
 
 export interface Viewer {
   sub: string;
@@ -16,7 +20,20 @@ export interface Viewer {
   clientId: string | null;
 }
 
-export type ViewerVars = { Variables: { viewer: Viewer } };
+/** The API key a request was made with (null for access tokens). */
+export interface KeyInfo {
+  jti: string;
+  scopes: string[];
+  exp: number;
+  replaces: string | null;
+}
+
+export interface Caller {
+  viewer: Viewer;
+  key: KeyInfo | null;
+}
+
+export type ViewerVars = { Variables: { viewer: Viewer; key: KeyInfo | null; caller: Caller | null } };
 
 const issuers = env.OPENRMS_ISSUER.split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
 
@@ -63,52 +80,155 @@ async function refreshFromClaims(c: AccessClaims) {
   });
 }
 
-/** Verify the bearer token and build the Viewer. Throws TokenError, or returns null when absent. */
-export async function viewerFrom(c: Context): Promise<Viewer | null> {
-  const token = bearerToken(c.req.header("authorization"));
-  if (!token) return null;
-  const claims = await verifyAccessToken(token, { audience: env.OPENRMS_AUDIENCE, issuers });
-  await refreshFromClaims(claims);
-  const { rows } = await q<{ callsign: string; callsign_verified: boolean; banned: boolean; name: string | null }>(
-    `SELECT callsign, callsign_verified, banned, name FROM account_cache WHERE sub = $1`, [claims.sub],
-  );
-  const acct = rows[0];
-  if (acct?.banned) throw new TokenError("account is banned", "invalid");
-  const { rows: clubs } = await q<{ id: string; callsign: string; role: ClubRole; verified: boolean }>(
+/** The presented credential: `Authorization: Bearer`, or `x-api-key` carrying an `ormk_` key. */
+function presented(c: Context): string | null {
+  const bearer = bearerToken(c.req.header("authorization"));
+  if (bearer) return bearer;
+  const x = c.req.header("x-api-key")?.trim();
+  return x?.startsWith(KEY_PREFIX) ? x : null;
+}
+
+async function clubsOf(sub: string) {
+  const { rows } = await q<{ id: string; callsign: string; role: ClubRole; verified: boolean }>(
     `SELECT c.id, c.callsign, m.role, c.verified FROM account_club_member m JOIN account_club c ON c.id = m.club_id WHERE m.sub = $1 ORDER BY c.callsign`,
-    [claims.sub],
+    [sub],
   );
-  return {
-    sub: claims.sub,
-    callsign: acct?.callsign ?? claims.callsign ?? "",
-    callsignVerified: acct?.callsign_verified ?? !!claims.callsign_verified,
-    name: acct?.name ?? claims.name ?? null,
-    role: claims.client_id ? "user" : (claims.role ?? "user"), // third-party clients never carry staff power
-    clubs, // from the cache: removals by webhook win over older tokens
-    clientId: claims.client_id ?? null,
-  };
+  return rows;
+}
+
+/** Verify the credential and build the Caller. Throws TokenError, or returns null when absent. */
+export async function callerFrom(c: Context): Promise<Caller | null> {
+  const cached = c.get("caller") as Caller | null | undefined;
+  if (cached !== undefined) return cached;
+  const token = presented(c);
+  if (!token) return null;
+  const b = await verifyBearer(token, { audience: env.OPENRMS_AUDIENCE, issuers, isRevoked });
+  let caller: Caller;
+  if (b.kind === "key") {
+    // A key's claims are as old as the key (up to a year): its callsign is display-only, and it
+    // never refreshes the cache or carries a role. Everything comes from the account cache.
+    const k = b.claims;
+    const { rows } = await q<{ callsign: string; callsign_verified: boolean; banned: boolean; name: string | null }>(
+      `SELECT callsign, callsign_verified, banned, name FROM account_cache WHERE sub = $1`, [k.sub],
+    );
+    const acct = rows[0];
+    if (acct?.banned) throw new TokenError("account is banned", "invalid");
+    caller = {
+      viewer: {
+        sub: k.sub, callsign: acct?.callsign ?? "", callsignVerified: acct?.callsign_verified ?? false, name: acct?.name ?? null,
+        role: "user", clubs: await clubsOf(k.sub), clientId: null,
+      },
+      key: { jti: k.jti, scopes: k.scope, exp: k.exp, replaces: k.replaces ?? null },
+    };
+  } else {
+    const claims = b.claims;
+    await refreshFromClaims(claims);
+    const { rows } = await q<{ callsign: string; callsign_verified: boolean; banned: boolean; name: string | null }>(
+      `SELECT callsign, callsign_verified, banned, name FROM account_cache WHERE sub = $1`, [claims.sub],
+    );
+    const acct = rows[0];
+    if (acct?.banned) throw new TokenError("account is banned", "invalid");
+    caller = {
+      viewer: {
+        sub: claims.sub,
+        callsign: acct?.callsign ?? claims.callsign ?? "",
+        callsignVerified: acct?.callsign_verified ?? !!claims.callsign_verified,
+        name: acct?.name ?? claims.name ?? null,
+        role: claims.client_id ? "user" : (claims.role ?? "user"), // third-party clients never carry staff power
+        clubs: await clubsOf(claims.sub), // from the cache: removals by webhook win over older tokens
+        clientId: claims.client_id ?? null,
+      },
+      key: null,
+    };
+  }
+  c.set("caller", caller);
+  return caller;
+}
+
+/** Access tokens only (keys are treated as absent). */
+export async function viewerFrom(c: Context): Promise<Viewer | null> {
+  const caller = await callerFrom(c);
+  return caller && !caller.key ? caller.viewer : null;
 }
 
 function deny(c: Context, e: unknown) {
   const code = e instanceof TokenError ? e.code : "invalid";
   const msg = e instanceof TokenError ? e.message : "invalid token";
-  return c.json({ error: msg, code }, code === "invalid" && msg === "account is banned" ? 403 : 401);
+  return c.json({ error: msg, code }, code === "invalid" && msg === "account is banned" ? 403 : 401,
+    { "WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${env.PUBLIC_URL.replace(/\/+$/, "")}/.well-known/oauth-protected-resource"` });
 }
 
-/** Require a signed-in caller (Authorization: Bearer <Accounts access token>). */
-export const requireViewer: MiddlewareHandler<ViewerVars> = async (c, next) => {
-  try {
-    const v = await viewerFrom(c);
-    if (!v) return c.json({ error: "sign in required (Authorization: Bearer <access token from openRMS Accounts>)", code: "missing" }, 401);
-    if (!v.callsign) return c.json({ error: "this token has no callsign claim; request the callsign scope" }, 403);
-    c.set("viewer", v);
-  } catch (e) {
-    return deny(c, e);
-  }
-  await next();
-};
+const KEY_HINT = `manage keys at ${env.OPENRMS_ISSUER.split(",")[0]!.trim().replace(/\/+$/, "")}/keys`;
 
-/** Optional caller: invalid or missing tokens are treated as anonymous. */
+/**
+ * Check a key's scope and rate limit for this route. Returns a response to send, or null to go on.
+ * `scopes`: any one of them is enough.
+ */
+function keyGate(c: Context, key: KeyInfo, scopes: readonly KeyScope[]): Response | null {
+  const scope = scopes.find((s) => key.scopes.includes(s));
+  if (!scope) {
+    return scopes.length
+      ? c.json({ error: `this API key lacks the ${scopes.join(" or ")} scope (${KEY_HINT})`, code: "insufficient_scope" }, 403,
+          { "WWW-Authenticate": `Bearer error="insufficient_scope", scope="${scopes.join(" ")}"` })
+      : c.json({ error: "API keys can't be used here; sign in to openRMS Accounts", code: "key_not_allowed" }, 403);
+  }
+  const wait = rateLimit(key.jti, scope);
+  if (wait) return c.json({ error: "rate limit reached for this key", code: "rate_limited" }, 429, { "Retry-After": String(wait) });
+  noteKeyUse(key.jti);
+  return null;
+}
+
+/**
+ * Require a signed-in caller: an Accounts access token, or an API key holding one of
+ * `keyScopes` (none by default, so keys are refused).
+ */
+export function requireViewer(opts: { keyScopes?: readonly KeyScope[]; needCallsign?: boolean } = {}): MiddlewareHandler<ViewerVars> {
+  const keyScopes = opts.keyScopes ?? [];
+  const needCallsign = opts.needCallsign ?? true;
+  return async (c, next) => {
+    let caller: Caller | null;
+    try {
+      caller = await callerFrom(c);
+    } catch (e) {
+      return deny(c, e);
+    }
+    if (!caller) return c.json({ error: "sign in required (Authorization: Bearer <access token or API key from openRMS Accounts>)", code: "missing" }, 401);
+    if (caller.key) {
+      const r = keyGate(c, caller.key, keyScopes);
+      if (r) return r;
+    }
+    if (needCallsign && !caller.viewer.callsign) {
+      return c.json({ error: caller.key ? "the key's account isn't known here yet; sign in to the site once" : "this token has no callsign claim; request the callsign scope" }, 403);
+    }
+    c.set("viewer", caller.viewer);
+    c.set("key", caller.key);
+    await next();
+  };
+}
+
+/** Signed-in callers with access tokens only: staff, account and moderation routes. */
+export const requireSignedIn = requireViewer();
+
+/** An API key with `scope` only (machine routes: heartbeats, watcher uploads). */
+export function requireKey(scope: KeyScope): MiddlewareHandler<ViewerVars> {
+  return async (c, next) => {
+    let caller: Caller | null;
+    try {
+      caller = await callerFrom(c);
+    } catch (e) {
+      return deny(c, e);
+    }
+    if (!caller) return c.json({ error: `API key required (Authorization: Bearer ormk_…, scope ${scope}; ${KEY_HINT})`, code: "missing" }, 401);
+    if (!caller.key) return c.json({ error: `this route takes an API key with the ${scope} scope, not a sign-in token (${KEY_HINT})`, code: "key_required" }, 401);
+    const r = keyGate(c, caller.key, [scope]);
+    if (r) return r;
+    c.set("viewer", caller.viewer);
+    c.set("key", caller.key);
+    await next();
+  };
+}
+
+/** Optional caller (access tokens only): invalid or missing credentials are treated as anonymous. */
 export async function optionalViewer(c: Context): Promise<Viewer | null> {
   try {
     return await viewerFrom(c);

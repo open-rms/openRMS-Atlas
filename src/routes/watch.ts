@@ -1,6 +1,6 @@
 // Watchers: community openRMS-Watch receivers reporting what they hear on the air.
-// Spec: openRMS-Spec/watch/feed.md. Identity comes from openRMS-Accounts tokens; upload keys
-// (ormsw_) are Atlas's own (identity.md §5).
+// Spec: openRMS-Spec/watch/feed.md. Identity comes from openRMS-Accounts tokens. Uploads use an
+// Accounts API key with `watch:ingest`, bound to one watcher at POST /watch/link (identity.md §5.6).
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -9,8 +9,8 @@ import { publicDirectory } from "../data.js";
 import { bandOf, MODEM_IDS } from "../modes.js";
 import { isValidGrid } from "../lib/callsign.js";
 import { crcHex } from "../lib/crc.js";
-import { optionalViewer, requireViewer, type ViewerVars } from "../lib/identity.js";
-import { createKey, revokeKey, verifyKey } from "../lib/keys.js";
+import { optionalViewer, requireKey, requireSignedIn, type KeyInfo, type ViewerVars } from "../lib/identity.js";
+import { keysManageUrl } from "../lib/apikeys.js";
 import { invalidateSightings, loadSightings, SIGHTING_DAYS } from "../watch/sightings.js";
 import { contributors } from "../watch/contributors.js";
 import { EVENT_SELECT, projector, type EventRow } from "../watch/project.js";
@@ -20,7 +20,7 @@ import { can } from "../rbac.js";
 
 // ── Owner routes: /api/v1/me/watchers ───────────────────────────────────────────────────
 export const watcherRoutes = new Hono<ViewerVars>();
-watcherRoutes.use("*", requireViewer);
+watcherRoutes.use("*", requireSignedIn);
 
 const watcherInput = z.object({
   name: z.string().trim().min(1).max(60),
@@ -30,7 +30,7 @@ const watcherInput = z.object({
 });
 
 const watcherCols = `id, name, gridsquare, location_precision AS "locationPrecision", public, disabled,
-  disabled_reason AS "disabledReason", api_key_id IS NOT NULL AS "hasKey", last_seen_at AS "lastSeenAt",
+  disabled_reason AS "disabledReason", EXISTS (SELECT 1 FROM watcher_key k WHERE k.watcher_id = watcher.id AND k.revoked_at IS NULL AND k.key_exp > now()) AS "hasKey", last_seen_at AS "lastSeenAt",
   last_status AS "lastStatus", created_at AS "createdAt"`;
 
 watcherRoutes.get("/", async (c) => {
@@ -71,35 +71,49 @@ async function ownWatcher(id: string, ownerSub: string) {
   return rows[0] ?? null;
 }
 
-/** Mint (or rotate) a watcher's upload key; the previous key stops working at once. */
-async function mintWatcherKey(w: { id: string; name: string; owner_sub: string; api_key_id: string | null }) {
-  const k = await createKey({ kind: "watcher", ownerSub: w.owner_sub, name: `watcher ${w.name}`, watcherId: w.id });
-  if (w.api_key_id) await revokeKey(w.api_key_id);
-  await q(`UPDATE watcher SET api_key_id = $2 WHERE id = $1`, [w.id, k.id]);
-  return k.key;
-}
-
 watcherRoutes.delete("/:id", async (c) => {
   const w = await ownWatcher(c.req.param("id"), c.get("viewer").sub);
   if (!w) return c.json({ error: "not found" }, 404);
-  if (w.api_key_id) await revokeKey(w.api_key_id);
-  await q(`DELETE FROM watcher WHERE id = $1`, [w.id]);
+  await q(`DELETE FROM watcher WHERE id = $1`, [w.id]); // its key bindings go with it
   return c.body(null, 204);
 });
 
-watcherRoutes.post("/:id/key", async (c) => {
-  const w = await ownWatcher(c.req.param("id"), c.get("viewer").sub);
-  if (!w) return c.json({ error: "not found" }, 404);
-  return c.json({ key: await mintWatcherKey(w), watcherId: w.id }, 201);
-});
+watcherRoutes.post("/:id/key", async (c) =>
+  c.json({ error: `watcher keys are made at openRMS Accounts now (${keysManageUrl()}, scope watch:ingest), then linked with POST /api/v1/watch/link; openRMS Watch does both for you` }, 410),
+);
 
+/** Unlink every key from this watcher (they stop uploading here). To end a key everywhere, revoke it at Accounts. */
 watcherRoutes.delete("/:id/key", async (c) => {
   const w = await ownWatcher(c.req.param("id"), c.get("viewer").sub);
   if (!w) return c.json({ error: "not found" }, 404);
-  if (w.api_key_id) await revokeKey(w.api_key_id);
-  await q(`UPDATE watcher SET api_key_id = NULL WHERE id = $1`, [w.id]);
+  await q(`DELETE FROM watcher_key WHERE watcher_id = $1`, [w.id]);
   return c.body(null, 204);
 });
+
+/**
+ * The watcher a key uploads for. A renewed key (`replaces`) that isn't bound yet takes the
+ * binding of the key it replaces, even when that key's revocation arrived first (its row is
+ * kept as a tombstone), as long as the owner is the same. The old row stays, so a retried
+ * renewal of the same old key also finds it.
+ */
+async function boundWatcher(key: KeyInfo, sub: string): Promise<{ id: string; disabled: boolean } | null> {
+  const find = () =>
+    q<{ id: string; disabled: boolean }>(
+      `SELECT w.id, w.disabled FROM watcher_key k JOIN watcher w ON w.id = k.watcher_id
+        WHERE k.jti = $1 AND k.owner_sub = $2 AND w.owner_sub = $2 AND k.revoked_at IS NULL`,
+      [key.jti, sub],
+    );
+  const { rows } = await find();
+  if (rows[0] || !key.replaces) return rows[0] ?? null;
+  const moved = await q(
+    `INSERT INTO watcher_key (jti, watcher_id, owner_sub, key_exp)
+     SELECT $1, k.watcher_id, $3, to_timestamp($4) FROM watcher_key k JOIN watcher w ON w.id = k.watcher_id
+      WHERE k.jti = $2 AND k.owner_sub = $3 AND w.owner_sub = $3
+     ON CONFLICT (jti) DO NOTHING`,
+    [key.jti, key.replaces, sub, key.exp],
+  );
+  return moved.rowCount ? ((await find()).rows[0] ?? null) : null;
+}
 
 // ── Public watch routes: /api/v1/watch ──────────────────────────────────────────────────
 export const watchRoutes = new Hono();
@@ -162,17 +176,9 @@ function sanity(e: Ev, now: number): string | null {
 
 
 /** POST /api/v1/watch/ingest: NDJSON batch from a watcher, idempotent per event id. */
-watchRoutes.post("/ingest", async (c) => {
-  const key = c.req.header("x-api-key") ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!key) return c.json({ error: "x-api-key header required" }, 401);
-  const v = await verifyKey(key, "watcher");
-  if (!v.ok) {
-    if (v.status === 429) return c.json({ error: "slow down" }, 429, { "Retry-After": String(v.retryAfter ?? 60) });
-    return c.json({ error: v.status === 403 ? v.error : "token rejected" }, v.status);
-  }
-  const { rows: ws } = await q(`SELECT id, disabled FROM watcher WHERE api_key_id = $1 AND owner_sub = $2`, [v.key.id, v.key.owner_sub]);
-  const w = ws[0];
-  if (!w) return c.json({ error: "token rejected" }, 401);
+watchRoutes.post("/ingest", requireKey("watch:ingest"), async (c) => {
+  const w = await boundWatcher(c.get("key")!, c.get("viewer").sub);
+  if (!w) return c.json({ error: "this key isn't linked to a watcher; link it with POST /api/v1/watch/link", code: "not_linked" }, 403);
   if (w.disabled) return c.json({ error: "this watcher was disabled by a moderator" }, 403);
 
   const len = Number(c.req.header("content-length") ?? 0);
@@ -363,10 +369,10 @@ watchRoutes.get("/stream", async (c) => {
 });
 
 /**
- * POST /api/v1/watch/link (identity.md §5): the watcher, holding a device-flow access token
- * for this Atlas (aud = OPENRMS_AUDIENCE), picks one of the account's watchers or names a
- * new one, and receives that watcher's ormsw_ key. The watcher then discards the token.
- * Body: { watcherId } | { name, gridsquare?, locationPrecision? }. List choices with GET /api/v1/me/watchers.
+ * POST /api/v1/watch/link (identity.md §5.6): the watcher app, holding an Accounts API key with
+ * `watch:ingest` (minted through the device flow), binds that key to one of the account's
+ * watchers or to a new one. Atlas records jti → watcher; nothing is minted here.
+ * Body: { watcherId } | { name, gridsquare?, locationPrecision? }. Relinking moves the key.
  */
 const linkInput = z.union([
   z.object({ watcherId: z.uuid() }),
@@ -377,8 +383,9 @@ const linkInput = z.union([
   }),
 ]);
 
-watchRoutes.post("/link", requireViewer, async (c) => {
+watchRoutes.post("/link", requireKey("watch:ingest"), async (c) => {
   const sub = c.get("viewer").sub;
+  const key = c.get("key")!;
   const p = linkInput.safeParse(await c.req.json().catch(() => null));
   if (!p.success) return c.json({ error: "send { watcherId } or { name, gridsquare? }", issues: p.error.issues }, 400);
   let w;
@@ -390,5 +397,10 @@ watchRoutes.post("/link", requireViewer, async (c) => {
     w = await ownWatcher(created.id, sub);
   }
   if (w.disabled) return c.json({ error: "this watcher was disabled by a moderator" }, 403);
-  return c.json({ key: await mintWatcherKey(w), watcherId: w.id, name: w.name });
+  await q(
+    `INSERT INTO watcher_key (jti, watcher_id, owner_sub, key_exp) VALUES ($1, $2, $3, to_timestamp($4))
+     ON CONFLICT (jti) DO UPDATE SET watcher_id = EXCLUDED.watcher_id, created_at = now()`,
+    [key.jti, w.id, sub, key.exp],
+  );
+  return c.json({ watcherId: w.id, name: w.name });
 });

@@ -10,7 +10,7 @@ as N0WCA N0WCA; as N0WCD N0WCD '{"role":"admin"}'
 clean
 curl -s -H @$T/N0WCA "${J[@]}" -X POST $B/api/v1/me/gateways -d '{"callsign":"N0WCA-10","gridsquare":"DN16ra","channels":[{"frequencyKhz":7101.5,"modem":"mercury"}]}' >/dev/null
 W=$(curl -s -H @$T/N0WCA "${J[@]}" -X POST $B/api/v1/me/watchers -d '{"name":"wca-sdr","gridsquare":"DN16ab","locationPrecision":"grid4"}' | jq -r .id)
-K=$(curl -s -H @$T/N0WCA "${J[@]}" -X POST $B/api/v1/me/watchers/$W/key | jq -r .key)
+K=$(wkey N0WCA $W)
 CR=$(crc N0WCA-10); NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000Z); P=01JC$(date +%s)
 printf '%s\n' \
  "{\"type\":\"frame\",\"id\":\"${P}1\",\"ts\":\"$NOW\",\"modem\":\"mercury\",\"dialHz\":7100000,\"kind\":\"CALL\",\"from\":\"K7TEST\",\"toCrc\":\"$CR\"}" \

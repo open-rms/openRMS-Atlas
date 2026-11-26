@@ -43,6 +43,13 @@
       "when": 1795683710053,
       "tag": "0005_service_code_search",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795731532504,
+      "tag": "0006_accounts_api_keys",
+      "breakpoints": true
     }
   ]
 }

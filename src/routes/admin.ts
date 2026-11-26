@@ -9,13 +9,13 @@ import { invalidateDirectory } from "../data.js";
 import { importWinlink } from "../winlink/import.js";
 import { invalidatePolicy } from "../watch/project.js";
 import { DEMAND_DAYS, DEMAND_MIN_SEARCHERS, pruneDemand } from "../lib/codedemand.js";
-import { requireViewer, type Viewer } from "../lib/identity.js";
+import { requireSignedIn, type Viewer } from "../lib/identity.js";
 import { can, permissionsOf, roleOf } from "../rbac.js";
 
 type Vars = { Variables: { viewer: Viewer; role: string; userId: string } };
 export const adminRoutes = new Hono<Vars>();
 
-adminRoutes.use("*", requireViewer, async (c, next) => {
+adminRoutes.use("*", requireSignedIn, async (c, next) => {
   const v = c.get("viewer");
   if (roleOf(v.role) === "user") return c.json({ error: "staff only" }, 403);
   c.set("role", v.role);

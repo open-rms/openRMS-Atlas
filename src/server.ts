@@ -4,10 +4,12 @@ import { env } from "./env.js";
 import { migrate } from "./migrate.js";
 import { startWinlinkPoller } from "./winlink/import.js";
 import { startAccountsReconcile } from "./accounts/reconcile.js";
+import { startKeySync } from "./lib/apikeys.js";
 
 await migrate();
 startWinlinkPoller();
 startAccountsReconcile();
+startKeySync();
 serve({ fetch: createApp().fetch, port: env.PORT, hostname: env.HOST }, (i) =>
   console.log(`openRMS Atlas listening on ${i.address}:${i.port}`),
 );

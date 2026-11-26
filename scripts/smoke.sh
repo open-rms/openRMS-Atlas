@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end: gateways, keys, heartbeats, compat feed, claims and clubs, with identity from
+# End-to-end: gateways, API keys, heartbeats, compat feed, claims and clubs, with identity from
 # Accounts-style tokens (the test issuer). Sign-up and callsign rules are tested in Accounts.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -21,20 +21,18 @@ GW=$(curl -s -H @$T/N0CALL "${J[@]}" -X POST $B/api/v1/me/gateways -d '{"callsig
 check "gateway created" true "$([ ${#GW} = 36 ] && echo true)"
 check "listed in /me/gateways" "N0CALL-10" "$(curl -s -H @$T/N0CALL $B/api/v1/me/gateways | jq -r '.gateways[0].callsign')"
 
-say "gateway keys (Atlas-owned)"
-KEY=$(curl -s -H @$T/N0CALL "${J[@]}" -X POST $B/api/v1/me/keys -d "{\"name\":\"gw\",\"gatewayIds\":[\"$GW\"]}" | jq -r .key)
-check "key has orms_ prefix" "orms_" "${KEY:0:5}"
-check "key listed (start only)" "${KEY:0:6}" "$(curl -s -H @$T/N0CALL $B/api/v1/me/keys | jq -r '.keys[0].start')"
-check "heartbeat with bad key: 401" 401 "$(code -H 'x-api-key: orms_nope' -X POST $B/api/v1/gateways/$GW/heartbeat)"
-check "heartbeat" 200 "$(code -H "x-api-key: $KEY" "${J[@]}" -X POST $B/api/v1/gateways/$GW/heartbeat -d '{"currentFrequencyHz":7101500,"currentModem":"mercury","busy":false}')"
+say "API keys (minted by Accounts; Atlas verifies)"
+KEY=$(key N0CALL heartbeat)
+check "heartbeat with bad key: 401" 401 "$(code -H 'x-api-key: ormk_nope' -X POST $B/api/v1/gateways/$GW/heartbeat)"
+check "heartbeat (x-api-key)" 200 "$(code -H "x-api-key: $KEY" "${J[@]}" -X POST $B/api/v1/gateways/$GW/heartbeat -d '{"currentFrequencyHz":7101500,"currentModem":"mercury","busy":false}')"
 check "public view online with live data" "online/mercury" "$(curl -s $B/api/v1/gateways/N0CALL-10 | jq -r '"\(.status)/\(.live.currentModem)"')"
 GW2=$(curl -s -H @$T/N0CALL "${J[@]}" -X POST $B/api/v1/me/gateways -d '{"callsign":"N0CALL-11","gridsquare":"DN16","channels":[{"frequencyKhz":145050,"modem":"packet","variant":"1200"}]}' | jq -r .id)
-check "key limited to N0CALL-10 refused for N0CALL-11" 403 "$(code -H "x-api-key: $KEY" -X POST $B/api/v1/gateways/$GW2/heartbeat)"
-K2=$(curl -s -H @$T/N0CALM "${J[@]}" -X POST $B/api/v1/me/keys -d '{"name":"x"}' | jq -r .key)
+check "heartbeat (Authorization: Bearer) for a second gateway" 200 "$(code -H "Authorization: Bearer $KEY" -X POST $B/api/v1/gateways/$GW2/heartbeat)"
+K2=$(key N0CALM heartbeat)
 check "another account's key can't heartbeat it" 404 "$(code -H "x-api-key: $K2" -X POST $B/api/v1/gateways/$GW/heartbeat)"
 check "another account can't edit it" 404 "$(code -H @$T/N0CALM "${J[@]}" -X PUT $B/api/v1/me/gateways/$GW -d '{"callsign":"N0CALM","gridsquare":"DN16","channels":[{"frequencyKhz":7101.5,"modem":"mercury"}]}')"
-KID=$(curl -s -H @$T/N0CALL $B/api/v1/me/keys | jq -r '.keys[0].id')
-check "revoke key" 204 "$(code -H @$T/N0CALL -X DELETE $B/api/v1/me/keys/$KID)"
+check "Atlas no longer mints keys: 410" 410 "$(code -H @$T/N0CALL "${J[@]}" -X POST $B/api/v1/me/keys -d '{"name":"gw"}')"
+check "revoked (key.revoked webhook)" 200 "$(revoke "$(cat $T/N0CALL.jti)" sub-N0CALL)"
 check "revoked key: 401" 401 "$(code -H "x-api-key: $KEY" -X POST $B/api/v1/gateways/$GW/heartbeat)"
 
 say "compat feed"

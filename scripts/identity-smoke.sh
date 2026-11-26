@@ -43,7 +43,7 @@ check "a token older than the webhook doesn't undo it" t "$(as N0IDB N0IDB "{\"c
 say "user.banned stops the account's API use and keys"
 as N0IDB N0IDB
 GB=$(curl -s -H @$T/N0IDB "${J[@]}" -X POST $B/api/v1/me/gateways -d '{"callsign":"N0IDB-10","gridsquare":"DN16","channels":[{"frequencyKhz":7101.5,"modem":"mercury"}]}' | jq -r .id)
-KB=$(curl -s -H @$T/N0IDB "${J[@]}" -X POST $B/api/v1/me/keys -d '{"name":"b"}' | jq -r .key)
+KB=$(key N0IDB heartbeat)
 check "key works before the ban" 200 "$(code -H "x-api-key: $KB" -X POST $B/api/v1/gateways/$GB/heartbeat)"
 check "user.banned webhook" 200 "$(hook user.banned '{"sub":"sub-N0IDB","banned":true}')"
 check "banned: API refused (even with a valid token)" 403 "$(code -H @$T/N0IDB $B/api/v1/me/gateways)"
@@ -58,6 +58,7 @@ check "reason recorded" "owner callsign changed" "$(psql "$DB" -Atc "SELECT hidd
 
 say "user.deleted"
 check "user.deleted webhook" 200 "$(hook user.deleted '{"sub":"sub-N0IDB"}')"
+check "Accounts revokes the account's keys (key.revoked)" 200 "$(revoke "$(cat $T/N0IDB.jti)" sub-N0IDB)"
 check "keys revoked" 401 "$(code -H "x-api-key: $KB" -X POST $B/api/v1/gateways/$GB/heartbeat)"
 check "account removed from cache" 0 "$(psql "$DB" -Atc "SELECT count(*) FROM account_cache WHERE sub='sub-N0IDB'")"
 

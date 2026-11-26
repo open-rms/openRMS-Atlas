@@ -4,6 +4,8 @@
 //
 //   pnpm exec tsx scripts/dev-issuer.ts            # http://localhost:8799
 //   curl -s -X POST localhost:8799/mint -d '{"sub":"u1","callsign":"N0CALL"}'
+//   curl -s -X POST localhost:8799/mint-key -d '{"sub":"u1","scope":"heartbeat"}'   # ormk_ API key (identity.md §5.1)
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
@@ -43,6 +45,24 @@ async function handle(req: import("node:http").IncomingMessage, res: import("nod
       .setExpirationTime(exp ?? expiresIn ?? "15m"); // exp: absolute unix seconds (lets tests mint expired tokens)
     jwt = iat ? jwt.setIssuedAt(iat) : jwt.setIssuedAt();
     return send(200, { token: await jwt.sign(privateKey) });
+  }
+  if (req.url === "/mint-key" && req.method === "POST") {
+    // An Accounts-style API key: ormk_ + JWT with typ openrms-key+jwt and token_use api_key.
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const b = JSON.parse(raw || "{}") as Record<string, unknown> & { sub: string; aud?: string; exp?: number; jti?: string; typ?: string };
+    const { aud, exp, jti, typ, ...claims } = b;
+    const id = jti ?? randomUUID();
+    const jwt = await new SignJWT({ scope: "", token_use: "api_key", ...claims })
+      .setProtectedHeader({ alg: "ES256", kid: KID, typ: typ ?? "openrms-key+jwt" })
+      .setIssuer(ISS)
+      .setAudience(aud ?? AUD)
+      .setSubject(b.sub)
+      .setJti(id)
+      .setIssuedAt()
+      .setExpirationTime(exp ?? "90d")
+      .sign(privateKey);
+    return send(200, { key: `ormk_${jwt}`, jti: id });
   }
   send(404, { error: "not found" });
 }

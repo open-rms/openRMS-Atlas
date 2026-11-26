@@ -21,6 +21,26 @@ as() {
   printf '%s' "$tok" > "$T/$1.tok"
 }
 
+# key NAME SCOPE [extra-claims-json]: mint an Accounts-style API key (ormk_) for "sub-NAME";
+# prints the key. Its jti is written to "$T/NAME.jti".
+key() {
+  local extra=${3:-'{}'}
+  local body; body=$(jq -cn --arg sub "sub-$1" --arg scope "$2" --argjson x "$extra" '{sub:$sub, scope:$scope} + $x')
+  local r; r=$(curl -s -X POST $ISSUER/mint-key -d "$body")
+  printf '%s' "$(echo "$r" | jq -r .jti)" > "$T/$1.jti"
+  echo "$r" | jq -r .key
+}
+
+# wkey NAME WATCHER-ID: mint a watch:ingest key for "sub-NAME", link it to the watcher, print it
+wkey() {
+  local k; k=$(key "$1" watch:ingest)
+  curl -s -o /dev/null -H "Authorization: Bearer $k" -H 'Content-Type: application/json' -X POST $B/api/v1/watch/link -d "{\"watcherId\":\"$2\"}"
+  echo "$k"
+}
+
+# revoke JTI SUB: tell Atlas a key was revoked (key.revoked webhook)
+revoke() { hook key.revoked "$(jq -cn --arg j "$1" --arg s "$2" '{jti:$j, sub:$s, aud:"x", exp:(now+86400|floor)}')"; }
+
 # hook TYPE DATA-JSON: deliver a signed Accounts webhook to Atlas
 hook() {
   local secret; secret=$(grep '^ACCOUNTS_WEBHOOK_SECRET=' .env | cut -d= -f2-)
@@ -33,7 +53,7 @@ hook() {
 # forget SUB...: remove cached accounts and their data (test cleanup)
 forget() {
   for s in "$@"; do
-    psql "$DB" -qc "DELETE FROM gateway WHERE source='openrms' AND owner_sub='sub-$s'; UPDATE gateway SET owner_sub=NULL, owner_club_id=NULL, claimed_at=NULL, owner_comments='', emcomm='{}' WHERE source='winlink' AND owner_sub='sub-$s'; DELETE FROM watcher WHERE owner_sub='sub-$s'; DELETE FROM api_key WHERE owner_sub='sub-$s'; DELETE FROM account_club_member WHERE sub='sub-$s'; DELETE FROM account_cache WHERE sub='sub-$s'" >/dev/null
+    psql "$DB" -qc "DELETE FROM gateway WHERE source='openrms' AND owner_sub='sub-$s'; UPDATE gateway SET owner_sub=NULL, owner_club_id=NULL, claimed_at=NULL, owner_comments='', emcomm='{}' WHERE source='winlink' AND owner_sub='sub-$s'; DELETE FROM watcher WHERE owner_sub='sub-$s'; DELETE FROM watcher_key WHERE owner_sub='sub-$s'; DELETE FROM revoked_key WHERE sub='sub-$s'; DELETE FROM account_club_member WHERE sub='sub-$s'; DELETE FROM account_cache WHERE sub='sub-$s'" >/dev/null
   done
 }
 crc() { node -e 'let c=0xffff;for(const b of Buffer.from(process.argv[1].toUpperCase())){c^=b<<8;for(let i=0;i<8;i++)c=c&0x8000?((c<<1)^0x1021)&0xffff:(c<<1)&0xffff}console.log(c.toString(16).toUpperCase().padStart(4,"0"))' "$1"; }

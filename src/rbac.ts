@@ -2,9 +2,9 @@
 // openRMS-Accounts token (identity.md §4); who holds which role, and the rank rules for
 // assigning roles, live in Accounts.
 //
-//   superadmin, admin  everything here, including the client-callsign setting and the audit log
-//   moderator          hide listings, resolve reports, moderate watchers, manage opt-outs, view imports,
-//                      see every service code (including unlisted ones)
+//   superadmin, admin  everything here, including the client-callsign setting, the audit log and
+//                      every service code (unlisted ones and search demand)
+//   moderator          hide listings, resolve reports, moderate watchers, manage opt-outs, view imports
 //   user               nothing beyond their own and their clubs' gateways and watchers
 
 export const statements = {
@@ -29,7 +29,6 @@ const moderator: Perms = {
   import: ["view"],
   watcher: ["list", "disable", "purge"],
   optout: ["manage"],
-  servicecode: ["view"],
 };
 const admin: Perms = {
   gateway: ["hide", "edit-any"],

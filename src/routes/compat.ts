@@ -3,6 +3,7 @@
 import { Hono, type Context } from "hono";
 import { parseCodes, publicDirectory, publicServiceCodes } from "../data.js";
 import { limitUnlisted, nonPublic, recordMiss } from "../lib/codelimit.js";
+import { trackSearch } from "../lib/codedemand.js";
 import { env } from "../env.js";
 import { parseRequestedMode, patCacheFileName, stringifyWinlink, toWinlinkStatus } from "../compat/winlink-status.js";
 
@@ -34,6 +35,7 @@ async function feed(c: Context, asFile: boolean) {
   if (hidden.length) {
     const limited = limitUnlisted(c, hidden);
     if (limited) return limited;
+    trackSearch(c, hidden);
   }
   const hh = Number(p.historyhours?.[0]);
   const source = p.source?.[0];

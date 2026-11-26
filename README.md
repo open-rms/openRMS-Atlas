@@ -33,7 +33,7 @@ scripts/watch-smoke.sh        # watcher keys, ingest, callsign list, moderation 
 scripts/watch-b-smoke.sh      # sightings, heardOnAir, contributors (17)
 scripts/watch-c-smoke.sh      # events, live stream, client-callsign privacy (15)
 scripts/watch-d-smoke.sh      # watcher linking with a device-flow token (10)
-scripts/servicecode-smoke.sh  # custom service codes, unlisted visibility, staff promotion (25)
+scripts/servicecode-smoke.sh  # custom service codes, unlisted visibility, staff promotion, search demand (34)
 ```
 
 `.env.example` imports a bundled sample (`fixtures/`) for development. It is synthetic: the

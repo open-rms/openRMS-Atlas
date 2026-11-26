@@ -6,7 +6,7 @@
 // Accounts `sub` / club id as plain text, plus a local cache of account facts (below).
 import { sql } from "drizzle-orm";
 import {
-  bigint, bigserial, boolean, check, doublePrecision, foreignKey, index, integer, jsonb, pgTable, primaryKey, real, text,
+  bigint, bigserial, boolean, check, date, doublePrecision, foreignKey, index, integer, jsonb, pgTable, primaryKey, real, text,
   timestamp, unique, uniqueIndex, uuid,
 } from "drizzle-orm/pg-core";
 
@@ -103,6 +103,20 @@ export const serviceCode = pgTable(
     check("service_code_code_check", sql`code ~ '^[A-Z0-9]{1,16}$'`),
     check("service_code_visibility_check", sql`visibility IN ('public', 'unlisted')`),
   ],
+);
+
+// Demand for non-public codes: how many people searched for each one, per day. No IPs are stored;
+// searchers are counted once per day with an in-memory key that is never persisted. Admins see a
+// code only once 3+ searcher-days add up within 90 days; older rows are deleted.
+export const serviceCodeSearch = pgTable(
+  "service_code_search",
+  {
+    code: text().notNull(),
+    day: date().notNull(),
+    searchers: integer().default(0).notNull(),
+    searches: integer().default(0).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.code, t.day] }), index("service_code_search_day").on(t.day)],
 );
 
 export const importRun = pgTable("import_run", {

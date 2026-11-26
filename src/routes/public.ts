@@ -5,6 +5,7 @@ import { MODEMS, bandOf } from "../modes.js";
 import { gridToLatLon, haversineKm } from "../lib/callsign.js";
 import { feedServiceCodes } from "../compat/winlink-status.js";
 import { limitUnlisted, nonPublic, recordMiss } from "../lib/codelimit.js";
+import { trackSearch } from "../lib/codedemand.js";
 import { heardOnAirByGateway, type HeardOnAir } from "../watch/sightings.js";
 
 export const publicRoutes = new Hono();
@@ -70,6 +71,7 @@ async function directoryFor(c: Context, raw: string | undefined) {
   if (hidden.length) {
     const limited = limitUnlisted(c, hidden);
     if (limited) return { limited } as const;
+    trackSearch(c, hidden);
   }
   return { dir: await publicDirectory(new Set(hidden)), hidden } as const;
 }

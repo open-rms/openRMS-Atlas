@@ -8,6 +8,7 @@ import { q } from "../db/pool.js";
 import { invalidateDirectory } from "../data.js";
 import { importWinlink } from "../winlink/import.js";
 import { invalidatePolicy } from "../watch/project.js";
+import { DEMAND_DAYS, DEMAND_MIN_SEARCHERS, pruneDemand } from "../lib/codedemand.js";
 import { requireViewer, type Viewer } from "../lib/identity.js";
 import { can, permissionsOf, roleOf } from "../rbac.js";
 
@@ -162,19 +163,43 @@ adminRoutes.delete("/optouts/:callsign", need({ optout: ["manage"] }), async (c)
 });
 
 // ── Service codes ──────────────────────────────────────────────────────────────────────
-// Staff see every code, including unlisted ones, with how much it is used. Making a code
-// public lists it in filter chips, stats and dumps; making it unlisted hides it again.
+// Admins see every code, including unlisted ones, with how much it is used on listings and how
+// often people search for it, to spot common codes worth making public. Making a code public lists
+// it in filter chips, stats and dumps; making it unlisted hides it again.
 
 adminRoutes.get("/service-codes", need({ servicecode: ["view"] }), async (c) => {
   const { rows } = await q(
     `SELECT s.code, s.visibility, s.description, s.created_at AS "createdAt", s.updated_at AS "updatedAt", s.updated_by AS "updatedBy",
-            count(ch.id)::int AS channels, count(DISTINCT ch.gateway_id)::int AS gateways
+            count(ch.id)::int AS channels, count(DISTINCT ch.gateway_id)::int AS gateways,
+            count(DISTINCT COALESCE(g.owner_club_id, g.owner_sub))::int AS owners,
+            max(ch.updated_at) AS "lastUsedAt",
+            COALESCE((SELECT sum(d.searchers) FROM service_code_search d
+                       WHERE d.code = s.code AND d.day >= (now() AT TIME ZONE 'UTC')::date - ${DEMAND_DAYS}), 0)::int AS searchers
        FROM service_code s
        LEFT JOIN channel ch ON (ch.service_code = s.code OR s.code = ANY(ch.extra_service_codes))
-            AND EXISTS (SELECT 1 FROM gateway g WHERE g.id = ch.gateway_id AND g.removed_at IS NULL)
+            AND EXISTS (SELECT 1 FROM gateway gg WHERE gg.id = ch.gateway_id AND gg.removed_at IS NULL)
+       LEFT JOIN gateway g ON g.id = ch.gateway_id
       GROUP BY s.code ORDER BY (s.visibility = 'public') DESC, gateways DESC, s.code`,
   );
   return c.json({ serviceCodes: rows });
+});
+
+/**
+ * Codes people searched for that aren't public, by searcher-days over the last DEMAND_DAYS. A code
+ * shows only once DEMAND_MIN_SEARCHERS searcher-days add up, so one person's private code doesn't.
+ */
+adminRoutes.get("/service-codes/searches", need({ servicecode: ["view"] }), async (c) => {
+  await pruneDemand();
+  const { rows } = await q(
+    `SELECT d.code, sum(d.searchers)::int AS searchers, sum(d.searches)::int AS searches, max(d.day)::text AS "lastDay",
+            s.visibility
+       FROM service_code_search d LEFT JOIN service_code s ON s.code = d.code
+      WHERE d.day >= (now() AT TIME ZONE 'UTC')::date - $1::int AND COALESCE(s.visibility, 'unlisted') <> 'public'
+      GROUP BY d.code, s.visibility HAVING sum(d.searchers) >= $2
+      ORDER BY searchers DESC, d.code LIMIT 200`,
+    [DEMAND_DAYS, DEMAND_MIN_SEARCHERS],
+  );
+  return c.json({ days: DEMAND_DAYS, minSearchers: DEMAND_MIN_SEARCHERS, searches: rows });
 });
 
 adminRoutes.patch("/service-codes/:code", need({ servicecode: ["edit"] }), async (c) => {
@@ -189,13 +214,15 @@ adminRoutes.patch("/service-codes/:code", need({ servicecode: ["edit"] }), async
   if (body.visibility === "unlisted" && ["PUBLIC", "EMCOMM"].includes(code)) {
     return c.json({ error: `${code} is a standard Winlink code and stays public` }, 400);
   }
+  if (!/^[A-Z0-9]{1,16}$/.test(code)) return c.json({ error: "service codes are 1-16 letters or digits" }, 400);
+  // Creates the code if nobody has listed it yet (e.g. promoting a code people search for).
   const { rows } = await q(
-    `UPDATE service_code SET visibility = COALESCE($2, visibility), description = COALESCE($3, description),
-            updated_at = now(), updated_by = $4
-      WHERE code = $1 RETURNING code, visibility, description`,
+    `INSERT INTO service_code (code, visibility, description, updated_by) VALUES ($1, COALESCE($2, 'unlisted'), COALESCE($3, ''), $4)
+     ON CONFLICT (code) DO UPDATE SET visibility = COALESCE($2, service_code.visibility),
+            description = COALESCE($3, service_code.description), updated_at = now(), updated_by = $4
+     RETURNING code, visibility, description`,
     [code, body.visibility ?? null, body.description?.trim() ?? null, c.get("userId")],
   );
-  if (!rows[0]) return c.json({ error: "unknown service code" }, 404);
   invalidateDirectory();
   await audit(c, "servicecode.update", code, { visibility: body.visibility, description: body.description });
   return c.json(rows[0]);

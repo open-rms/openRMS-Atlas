@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # End-to-end: custom service codes and their visibility. An unlisted code is never enumerated
 # (list, detail, stats, code list, dumps, compat feed) and matches only an exact request.
-# Each run looks up 3 distinct non-public codes, which count toward the per-IP hourly limit
+# Each run looks up 4 distinct non-public codes, which count toward the per-IP hourly limit
 # (UNLISTED_CODES_PER_HOUR); raise it in .env if you rerun this many times in an hour.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 . scripts/lib.sh
-cleanup() { forget N0SCA; psql "$DB" -qc "DELETE FROM service_code WHERE code LIKE 'ZZ%'" >/dev/null; }
+cleanup() { forget N0SCA; psql "$DB" -qc "DELETE FROM service_code WHERE code LIKE 'ZZ%'; DELETE FROM service_code_search WHERE code LIKE 'ZZ%'" >/dev/null; }
 cleanup
 as N0SCA N0SCA; as N0SCS N0SCS '{"role":"admin"}'; as N0SCM N0SCM '{"role":"moderator"}'
 
@@ -39,13 +39,29 @@ check "same in the compat feed" 400 "$(code -X POST $B/gateway/status.json --dat
 check "unknown code and empty unlisted code answer alike" true "$([ "$(curl -s "$B/api/v1/gateways?serviceCode=ZZGRP2")" = "$(curl -s "$B/api/v1/gateways?serviceCode=ZZNOPE")" ] && echo true)"
 
 say "staff"
-check "moderator lists every code" true "$(curl -s -H @$T/N0SCM $B/api/v1/admin/service-codes | jq '[.serviceCodes[].code]|index("ZZGRP1") != null')"
+check "admin lists every code, with sysop count" "ZZGRP1:2:1" "$(curl -s -H @$T/N0SCS $B/api/v1/admin/service-codes | jq -r '.serviceCodes[]|select(.code=="ZZGRP1")|"\(.code):\(.gateways):\(.owners)"')"
+check "moderator can't list codes" 403 "$(code -H @$T/N0SCM $B/api/v1/admin/service-codes)"
 check "moderator can't change visibility" 403 "$(code -H @$T/N0SCM "${J[@]}" -X PATCH $B/api/v1/admin/service-codes/ZZGRP1 -d '{"visibility":"public"}')"
 check "PUBLIC can't be unlisted" 400 "$(code -H @$T/N0SCS "${J[@]}" -X PATCH $B/api/v1/admin/service-codes/PUBLIC -d '{"visibility":"unlisted"}')"
 check "admin promotes ZZGRP1" public "$(curl -s -H @$T/N0SCS "${J[@]}" -X PATCH $B/api/v1/admin/service-codes/zzgrp1 -d '{"visibility":"public","description":"Smoke test group"}' | jq -r .visibility)"
 check "now listed with its gateways" "2" "$(curl -s $B/api/v1/service-codes | jq '.serviceCodes[]|select(.code=="ZZGRP1")|.gateways')"
 check "now enumerated in stats" 2 "$(curl -s $B/api/v1/stats | jq .byServiceCode.ZZGRP1)"
 check "audited" 1 "$(psql "$DB" -Atc "SELECT count(*) FROM audit_log WHERE action='servicecode.update' AND target='ZZGRP1' AND actor_sub='sub-N0SCS'")"
+
+say "search demand (admins only, thresholded, no IPs stored)"
+# A fresh code each run: a searcher is counted once per code per day, so a reused code would read 0.
+DEM="ZZD$(date +%s | tail -c 9)"
+curl -s -o /dev/null "$B/api/v1/gateways?serviceCode=$DEM"; curl -s -o /dev/null -X POST $B/gateway/status.json --data "ServiceCodes=$DEM"
+sleep 0.3
+check "one searcher counted once, two searches" "1/2" "$(psql "$DB" -Atc "SELECT searchers||'/'||searches FROM service_code_search WHERE code='$DEM'")"
+check "no IP or hash stored" "code,day,searchers,searches" "$(psql "$DB" -Atc "SELECT string_agg(column_name, ',' ORDER BY ordinal_position) FROM information_schema.columns WHERE table_name='service_code_search'")"
+check "below 3 searcher-days: hidden from admins" 0 "$(curl -s -H @$T/N0SCS $B/api/v1/admin/service-codes/searches | jq --arg c "$DEM" '[.searches[]|select(.code==$c)]|length')"
+psql "$DB" -qc "INSERT INTO service_code_search (code, day, searchers, searches) VALUES ('$DEM', (now() AT TIME ZONE 'UTC')::date - 1, 2, 5), ('ZZOLD1', (now() AT TIME ZONE 'UTC')::date - 120, 9, 9)" >/dev/null
+check "at 3 searcher-days: shown" "3/7" "$(curl -s -H @$T/N0SCS $B/api/v1/admin/service-codes/searches | jq -r --arg c "$DEM" '.searches[]|select(.code==$c)|"\(.searchers)/\(.searches)"')"
+check "older than 90 days: deleted" 0 "$(psql "$DB" -Atc "SELECT count(*) FROM service_code_search WHERE code='ZZOLD1'")"
+check "moderator can't see demand" 403 "$(code -H @$T/N0SCM $B/api/v1/admin/service-codes/searches)"
+check "admin promotes a searched code nobody lists" public "$(curl -s -H @$T/N0SCS "${J[@]}" -X PATCH $B/api/v1/admin/service-codes/$DEM -d '{"visibility":"public"}' | jq -r .visibility)"
+check "promoted code leaves the demand list" 0 "$(curl -s -H @$T/N0SCS $B/api/v1/admin/service-codes/searches | jq --arg c "$DEM" '[.searches[]|select(.code==$c)]|length')"
 
 psql "$DB" -qc "DELETE FROM audit_log WHERE target LIKE 'ZZ%'" >/dev/null
 cleanup

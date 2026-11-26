@@ -34,8 +34,9 @@ describe("service code rules", () => {
     expect(serviceCodeSchema.parse(" mygrp1 ")).toBe("MYGRP1");
     for (const bad of ["", "MY-GRP", "MY_GRP", "A".repeat(17), "ÄRES"]) expect(serviceCodeSchema.safeParse(bad).success).toBe(false);
   });
-  it("moderators see every code; only admins change visibility", () => {
-    expect(can("moderator", { servicecode: ["view"] })).toBe(true);
+  it("only admins and superadmins see and change codes", () => {
+    expect(can("moderator", { servicecode: ["view"] })).toBe(false);
+    expect(can("superadmin", { servicecode: ["view", "edit"] })).toBe(true);
     expect(can("moderator", { servicecode: ["edit"] })).toBe(false);
     expect(can("admin", { servicecode: ["edit"] })).toBe(true);
     expect(can("user", { servicecode: ["view"] })).toBe(false);

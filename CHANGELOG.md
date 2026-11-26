@@ -4,6 +4,15 @@ Notable changes to the Atlas API and feeds. The contract lives in openRMS-Spec `
 
 ## 2026-11-26 (later)
 
+### Changed (behavior)
+- Service codes are visible to admins and superadmins only. Moderators lost `servicecode:view`.
+- `PATCH /api/v1/admin/service-codes/{code}` creates the code if it doesn't exist.
+
+### Added
+- Search demand: searches for non-public codes are counted per code per day (migration 0005,
+  `service_code_search`). No IPs are stored. `GET /api/v1/admin/service-codes/searches` lists codes
+  with 3+ searcher-days in 90 days. The admin code list gains `owners`, `lastUsedAt` and `searchers`.
+
 ### Fixed
 - The request log no longer writes query strings. It logs only method, path, status and time.
   It used to log full URLs, so `?serviceCode=` (including unlisted codes) ended up in the journal.

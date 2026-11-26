@@ -86,7 +86,8 @@ expected.
   `watch:ingest`, `gateways:read`, `gateways:write`); staff and account routes never take one.
   Revoked keys are kept in `revoked_key` (from the `key.revoked` webhook, and a pull at start
   and every 5 minutes), a banned owner's keys stop at once, each key has an hourly limit, and
-  last use is reported to Accounts every 5 minutes. A watcher key uploads for the watcher it
+  last use is reported to Accounts every 5 minutes. Set `OPENRMS_JWKS_CACHE_FILE` so keys still
+  verify after a restart while Accounts is unreachable. A watcher key uploads for the watcher it
   linked to (`watcher_key`); a renewal (`replaces`) takes over that watcher. The old
   Atlas-minted `orms_`/`ormsw_` keys are retired (`api_key` stays read-only for now).
 - Every row has `source` = `openrms` or `winlink`. A listing by a **verified** owner replaces

@@ -42,11 +42,26 @@ export async function storeRevoked(keys: RevokedKey[], source: "pull" | "webhook
   });
 }
 
-/** The pull cursor: only pulled rows count, so a webhook can't skip the pull past a missed revocation. */
-export async function lastSync(): Promise<string | null> {
-  const { rows } = await q<{ at: Date | null }>(`SELECT max(revoked_at) AS at FROM revoked_key WHERE source = 'pull'`);
-  return rows[0]?.at ? rows[0].at.toISOString() : null;
-}
+/**
+ * The pull cursor, owned by RevocationSync (it advances only from pulled rows). Kept in
+ * site_setting; before the first save it starts from the newest pulled denylist row.
+ */
+const CURSOR_KEY = "keys_revoked_cursor";
+export const revocationCursor = {
+  async load(): Promise<string | null> {
+    const { rows } = await q<{ value: string }>(`SELECT value #>> '{}' AS value FROM site_setting WHERE key = $1`, [CURSOR_KEY]);
+    if (rows[0]?.value) return rows[0].value;
+    const { rows: r } = await q<{ at: Date | null }>(`SELECT max(revoked_at) AS at FROM revoked_key WHERE source = 'pull'`);
+    return r[0]?.at ? r[0].at.toISOString() : null;
+  },
+  async save(iso: string): Promise<void> {
+    await q(
+      `INSERT INTO site_setting (key, value, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [CURSOR_KEY, JSON.stringify(iso)],
+    );
+  },
+};
 
 /** Drop denylist rows for keys that have expired anyway, and old watcher-key tombstones. */
 export async function pruneKeys(): Promise<void> {
@@ -128,7 +143,7 @@ export function startKeySync(): void {
     clientId: env.ACCOUNTS_CLIENT_ID!,
     clientSecret: env.ACCOUNTS_CLIENT_SECRET!,
     store: (keys) => storeRevoked(keys, "pull"),
-    lastSync,
+    cursor: revocationCursor,
     log: (m, e) => console.error(`[keys] ${m}`, e instanceof Error ? e.message : (e ?? "")),
   });
   void sync.start();

@@ -98,7 +98,7 @@ expected.
 
 Any PostgreSQL 16+ server works. For anything beyond the dev container, give the Directory its
 own role and database: `psql "$ADMIN_DATABASE_URL" -v password="$(openssl rand -base64 24)" -f
-db/bootstrap.sql`, then set `DATABASE_URL` (add `?sslmode=require` for a remote server).
+db/bootstrap.sql`, then set `DATABASE_URL` (add `?sslmode=verify-full` for a remote server).
 
 PostgreSQL. openRMS's own tables are defined in `src/db/schema.ts` (Drizzle) and changed
 through versioned SQL migrations in `drizzle/`, applied by `src/migrate.ts` at startup (and

@@ -3,8 +3,14 @@
 **Provides:** `openrms-directory`, the open, API-first registry of radio email gateways on every
 mode (Winlink's list plus sysop-listed gateways on Mercury, Data2G, modem73, ION HF…), with
 API keys, heartbeats, watcher evidence, dumps, and a **Winlink-compatible feed** that Pat,
-EmComm Tools and 73 Linux can read. · **Consumes:** PostgreSQL; **openRMS-Accounts** for
-identity (JWTs, webhooks, service API); optionally the api.winlink.org gateway list (your own key). · **Status:** alpha. · **License:** AGPL-3.0-or-later.
+EmComm Tools and 73 Linux can read. · **Consumes:** openRMS-Spec (OpenAPI); PostgreSQL;
+**openRMS-Accounts** for identity (JWTs, webhooks, service API); optionally the api.winlink.org
+gateway list (your own key). · **Status:** alpha. · **License:** AGPL-3.0-or-later.
+
+> **Sibling checkouts.** This repo expects other openRMS repos next to it:
+> `@openrms/service-auth` is linked from `../openRMS-Accounts/packages/service-auth`
+> (`"link:"` in `package.json`; publishing it as a package is deferred), and spec paths below
+> point into `../openRMS-Spec`, which is not published yet.
 
 Spec: `../openRMS-Spec/directory/` (`openapi.yaml`, `modes.md`, `winlink-compat.md`).
 Identity: `../openRMS-Accounts` (`../openRMS-Spec/accounts/identity.md`): sign-up, callsigns,

@@ -1,0 +1,12 @@
+# Development database. Port 5442 avoids clashing with other local Postgres.
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: openrms
+      POSTGRES_PASSWORD: openrms
+      POSTGRES_DB: openrms
+    ports: ["127.0.0.1:5442:5432"]
+    volumes: [openrms-pg:/var/lib/postgresql]
+volumes:
+  openrms-pg:

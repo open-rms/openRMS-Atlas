@@ -88,6 +88,11 @@ directory is a web service where its account, API-key and admin features save th
 Rust stays the language for everything that touches a radio. Distance filtering runs in
 memory for now; PostGIS only when the listing count needs it. Self-hosted SQLite is deferred.
 
+Database (2026-11-25): own database and role `openrms_directory` on the shared Postgres
+(`db/bootstrap.sql`). The openrms.dev deployment uses a managed PostgreSQL service (umbrella `PLAN.md`, Database); the
+code stays provider-neutral. The local dev database is still named `openrms` in the Docker
+container.
+
 ## Phases
 
 - **P3a:** read API, Swagger, dumps, Winlink import, compat feed. **Done (alpha) 2026-11-25.**

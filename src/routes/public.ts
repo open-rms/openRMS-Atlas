@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { publicDirectory, type GatewayView } from "../data.js";
 import { MODEMS, bandOf } from "../modes.js";
 import { gridToLatLon, haversineKm } from "../lib/callsign.js";
+import { feedServiceCode } from "../compat/winlink-status.js";
 import { heardOnAirByGateway, type HeardOnAir } from "../watch/sightings.js";
 
 export const publicRoutes = new Hono();
@@ -12,6 +13,7 @@ export function publicGateway(g: GatewayView, distanceKm?: number, heard?: Map<s
   const { ownerUserId, hidden, ...rest } = g;
   return {
     ...rest,
+    channels: rest.channels.map((ch) => ({ ...ch, feedServiceCode: feedServiceCode(g, ch) })),
     // Independent on-air evidence from watchers; separate from status, never edits the listing.
     heardOnAir: heard?.get(g.id) ?? null,
     ...(distanceKm !== undefined ? { distanceKm: Math.round(distanceKm) } : {}),
@@ -39,7 +41,8 @@ export function filterGateways(all: GatewayView[], p: Record<string, string | un
     let channels = g.channels;
     if (modems) channels = channels.filter((c) => modems.includes(c.modem));
     if (bands) channels = channels.filter((c) => c.band && bands.includes(c.band));
-    if (codes) channels = channels.filter((c) => codes.includes(c.serviceCode.toUpperCase()));
+    // Matches the code Pat sees (feedServiceCode), so a Mercury channel typed as PUBLIC counts as MERCURY.
+    if (codes) channels = channels.filter((c) => codes.includes(feedServiceCode(g, c)));
     if (channels.length === 0) continue;
     let d: number | undefined;
     if (origin && g.latitude != null && g.longitude != null) {
@@ -87,7 +90,9 @@ publicRoutes.get("/stats", async (c) => {
   const bySource: Record<string, number> = {};
   const byStatus: Record<string, number> = {};
   const byBand: Record<string, number> = {};
+  const byServiceCode: Record<string, number> = {}; // gateways per code, as the compat feed publishes it
   for (const g of all) {
+    for (const sc of new Set(g.channels.map((x) => feedServiceCode(g, x)))) byServiceCode[sc] = (byServiceCode[sc] ?? 0) + 1;
     bySource[g.source] = (bySource[g.source] ?? 0) + 1;
     byStatus[g.status] = (byStatus[g.status] ?? 0) + 1;
     for (const ch of new Set(g.channels.map((x) => x.modem))) byModem[ch] = (byModem[ch] ?? 0) + 1;
@@ -96,5 +101,5 @@ publicRoutes.get("/stats", async (c) => {
       byBand[b] = (byBand[b] ?? 0) + 1;
     }
   }
-  return c.json({ gateways: all.length, channels: all.reduce((n, g) => n + g.channels.length, 0), byModem, bySource, byStatus, byBand });
+  return c.json({ gateways: all.length, channels: all.reduce((n, g) => n + g.channels.length, 0), byModem, bySource, byStatus, byBand, byServiceCode });
 });

@@ -5,7 +5,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseWinlinkModes, MODEMS } from "../src/modes.js";
-import { toWinlinkStatus, stringifyWinlink, rfc1123, patCacheFileName, compatChannel } from "../src/compat/winlink-status.js";
+import { toWinlinkStatus, stringifyWinlink, rfc1123, patCacheFileName, compatChannel, feedServiceCode } from "../src/compat/winlink-status.js";
+import { filterGateways } from "../src/routes/public.js";
 import type { GatewayView, ChannelView } from "../src/data.js";
 
 const fixture = JSON.parse(gunzipSync(readFileSync(new URL("../fixtures/winlink-gateway-status.sample.json.gz", import.meta.url))).toString());
@@ -114,6 +115,18 @@ describe("compat feed", () => {
     expect(views[0]!.channels.map((c) => c.modem)).toEqual(["xara", "data2g"]);
     const out = toWinlinkStatus(views, { ...query, serviceCodes: ["XARA", "DATA2G"] }, fixtureNow).Gateways[0]!.GatewayChannels;
     expect(out.map((c) => [c.SupportedModes, c.Mode, c.ServiceCode])).toEqual([["VARA", 50, "XARA"], ["VARA 500", 53, "DATA2G"]]);
+  });
+
+  it("filters by the service code the feed publishes, not the one the sysop typed", () => {
+    const gw = fromWinlink(fixture)[0]!;
+    const mk = (modem: any, extra: Partial<ChannelView> = {}): ChannelView => ({ ...gw.channels[0]!, winlinkSupportedModes: null, modem, variant: null, serviceCode: "PUBLIC", ...extra });
+    const own: GatewayView = { ...gw, source: "openrms", channels: [mk("mercury"), mk("xara"), mk("ardop", { variant: "500" }), mk("modem73")] };
+    expect(own.channels.map((c) => feedServiceCode(own, c))).toEqual(["MERCURY", "XARA", "PUBLIC", "PUBLIC"]);
+    const only = (sc: string) => filterGateways([own], { serviceCode: sc })[0]?.g.channels.map((c) => c.modem) ?? [];
+    expect(only("xara")).toEqual(["xara"]);
+    expect(only("PUBLIC")).toEqual(["ardop", "modem73"]);
+    expect(only("MERCURY,DATA2G")).toEqual(["mercury"]);
+    expect(only("DATA2G")).toEqual([]);
   });
 
   it("names cache files the way Pat does", () => {

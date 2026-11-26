@@ -101,6 +101,15 @@ export function compatChannel(gw: GatewayView, ch: ChannelView): { supportedMode
   return { supportedModes: rule.supportedModes, mode: rule.mode, serviceCode: rule.serviceCode ?? ch.serviceCode };
 }
 
+/**
+ * The service code a channel is published under in the compat feed. Modes that borrow the VARA
+ * host protocol (Mercury, XARA, Data2G) are forced to their own code even if the sysop typed PUBLIC.
+ * Channels the feed leaves out keep their stored code.
+ */
+export function feedServiceCode(gw: GatewayView, ch: ChannelView): string {
+  return (compatChannel(gw, ch)?.serviceCode ?? ch.serviceCode).toUpperCase();
+}
+
 export function toWinlinkStatus(gateways: GatewayView[], query: CompatQuery, now = new Date()): WinlinkStatusDoc {
   const codes = new Set(query.serviceCodes.map((c) => c.trim().toUpperCase()).filter(Boolean));
   if (codes.size === 0) codes.add("PUBLIC");

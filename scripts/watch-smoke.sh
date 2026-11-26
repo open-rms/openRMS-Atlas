@@ -36,8 +36,8 @@ R=$(ing "$K" $T/batch.ndjson)
 check "re-post is idempotent: 6 duplicates, 0 accepted" "6/0" "$(echo "$R" | jq -r '"\(.duplicate)/\(.accepted)"')"
 check "a gateway key is refused at ingest" 401 "$(code -H "x-api-key: $GK" --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
 check "no key: 401" 401 "$(code --data-binary @$T/batch.ndjson $B/api/v1/watch/ingest)"
-seq 1 1001 | sed 's/.*/{}/' > $T/big.ndjson
-check "over 1000 lines: 413" 413 "$(code -H "x-api-key: $K" --data-binary @$T/big.ndjson $B/api/v1/watch/ingest)"
+seq 1 5001 | sed 's/.*/{}/' > $T/big.ndjson
+check "over 5000 lines: 413" 413 "$(code -H "x-api-key: $K" --data-binary @$T/big.ndjson $B/api/v1/watch/ingest)"
 check "watcher status stored" "HackRF One" "$(curl -s -H @$T/N0WAT $B/api/v1/me/watchers | jq -r '.watchers[0].lastStatus.sdr')"
 
 echo "== a watcher key never works as a gateway key"

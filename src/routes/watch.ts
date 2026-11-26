@@ -104,8 +104,9 @@ watcherRoutes.delete("/:id/key", async (c) => {
 // ── Public watch routes: /api/v1/watch ──────────────────────────────────────────────────
 export const watchRoutes = new Hono();
 
-const MAX_LINES = 1000;
-const MAX_BYTES = 1_000_000;
+// Watchers batch uploads every 10 minutes (feed.md §2); room for a busy receiver's batch.
+const MAX_LINES = 5000;
+const MAX_BYTES = 5_000_000;
 const crc = z.string().regex(/^[0-9A-Fa-f]{4}$/).transform((s) => s.toUpperCase());
 const call = z.string().trim().max(16).regex(/^[A-Za-z0-9/-]+$/).transform((s) => s.toUpperCase());
 const ulid = z.string().min(10).max(40).regex(/^[0-9A-Za-z_-]+$/);

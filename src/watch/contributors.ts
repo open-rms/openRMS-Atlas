@@ -8,7 +8,8 @@ export interface Contributor {
   listeningHours: number; frames: number; firstContribution: string; lastSeen: string | null; live: boolean;
 }
 
-const LIVE_MS = 10 * 60_000;
+// Watchers upload every 10 minutes, so "live" allows two missed batches minus a margin.
+const LIVE_MS = 25 * 60_000;
 
 export async function contributors(days: number) {
   const since = new Date(Date.now() - days * 86400_000);

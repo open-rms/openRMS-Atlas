@@ -97,7 +97,7 @@ expected.
   `user.deleted` revokes its keys and hides its listings.
 - The Winlink import refuses a response that is empty or less than half the previous run
   (`pnpm cli import-winlink --force` overrides).
-- Compat feed: Mercury appears as `VARA` under service code `MERCURY` (never `PUBLIC`).
+- Compat feed: Mercury, XARA and Data2G appear as `VARA` under service codes `MERCURY`, `XARA` and `DATA2G` (never `PUBLIC`). The Winlink import requests those codes too.
   Modes no client can dial (Data2G etc.) are left out. `SupportedModes` is never empty.
 
 ## Database and migrations (Drizzle)

@@ -12,6 +12,7 @@ export type ModemId =
   | "vara-hf"
   | "vara-fm"
   | "mercury"
+  | "xara"
   | "data2g"
   | "modem73"
   | "ion-hf"
@@ -84,6 +85,7 @@ export const OPENRMS_MODE_CODES = {
   modem73: 9003,
   "ion-hf": 9004,
   freedata: 9005,
+  xara: 9006,
   other: 9999,
 } as const;
 
@@ -159,13 +161,35 @@ export const MODEMS: Modem[] = [
     compat: () => ({ supportedModes: "VARA", mode: OPENRMS_MODE_CODES.mercury, serviceCode: "MERCURY" }),
   },
   {
+    id: "xara",
+    label: "XARA",
+    variants: ["500", "2300", "2750", "FM NARROW", "FM WIDE"],
+    defaultVariant: "2300",
+    band: "any",
+    homepage: "https://github.com/NR5P/xara",
+    winlinkNative: false,
+    // Open-source (MIT) VARA-compatible modem: VARA HF 500/2300/2750 and VARA FM narrow/wide
+    // waveforms, VARA host protocol on 8300/8301. Its authors test it against VARA HF 4.9.0 and
+    // FM 4.4.0 over audio loopback; on-air interop with VARA is not yet established, so the feed
+    // keeps it under its own service code XARA (the convention its sysops use on Winlink).
+    compat: (v) => {
+      const s = v === "FM WIDE" ? "VARA FM WIDE" : v === "FM NARROW" ? "VARA FM" : !v || v === "2300" ? "VARA" : `VARA ${v}`;
+      return { supportedModes: s, mode: OPENRMS_MODE_CODES.xara, serviceCode: "XARA" };
+    },
+  },
+  {
     id: "data2g",
     label: "Data2G",
-    variants: [],
-    band: "hf",
+    // Session bandwidth cap in Hz (Data2G picks its own submode within it).
+    variants: ["500", "1200", "2400"],
+    defaultVariant: "2400",
+    band: "any",
     homepage: "https://github.com/arodland/Data2G",
     winlinkNative: false,
-    compat: () => null,
+    // Its own OFDM/PSK/QAM/FSK waveform (cannot talk to VARA on the air), driven through the
+    // VARA host protocol on 8300/8301, so Pat dials it as VARA HF. Same convention as Mercury:
+    // VARA + service code DATA2G, which is how Data2G gateways list themselves on Winlink.
+    compat: (v) => ({ supportedModes: v === "500" ? "VARA 500" : "VARA", mode: OPENRMS_MODE_CODES.data2g, serviceCode: "DATA2G" }),
   },
   {
     id: "modem73",
@@ -212,8 +236,9 @@ export function getModem(id: string): Modem | undefined {
 
 /**
  * Map a Winlink SupportedModes string (plus service code) to the real modem.
- * A VARA channel with service code MERCURY is a Mercury gateway: that is the
- * convention Mercury sysops use on Winlink today.
+ * VARA channels listed under service code MERCURY, DATA2G or XARA are Mercury, Data2G or
+ * XARA gateways: the convention those sysops use on Winlink today (they speak the VARA host
+ * protocol, so Winlink clients dial them as VARA).
  */
 export function parseWinlinkModes(
   supportedModes: string,
@@ -222,10 +247,18 @@ export function parseWinlinkModes(
   const s = supportedModes.trim();
   const code = serviceCode.trim().toUpperCase();
   const rest = (prefix: RegExp) => s.replace(prefix, "").trim() || null;
-  if (/^VARA FM/i.test(s)) return { modem: "vara-fm", variant: /WIDE/i.test(s) ? "WIDE" : "NARROW" };
+  if (/^VARA FM/i.test(s)) {
+    const wide = /WIDE/i.test(s);
+    if (code === "XARA") return { modem: "xara", variant: wide ? "FM WIDE" : "FM NARROW" };
+    return { modem: "vara-fm", variant: wide ? "WIDE" : "NARROW" };
+  }
   if (/^VARA/i.test(s)) {
+    const bw = rest(/^VARA/i);
     if (code === "MERCURY") return { modem: "mercury", variant: null };
-    return { modem: "vara-hf", variant: rest(/^VARA/i) ?? "2300" };
+    if (code === "XARA") return { modem: "xara", variant: bw ?? "2300" };
+    // Data2G variants are its bandwidth caps; VARA 2750 listings mean full width (2400).
+    if (code === "DATA2G") return { modem: "data2g", variant: bw === "500" ? "500" : "2400" };
+    return { modem: "vara-hf", variant: bw ?? "2300" };
   }
   if (/^Robust Packet/i.test(s)) return { modem: "robust-packet", variant: null };
   if (/^Packet/i.test(s)) return { modem: "packet", variant: rest(/^Packet/i) };

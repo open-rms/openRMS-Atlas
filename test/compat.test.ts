@@ -43,6 +43,14 @@ describe("Winlink mode parsing", () => {
     expect(parseWinlinkModes("VARA 2750", "PUBLIC")).toEqual({ modem: "vara-hf", variant: "2750" });
     expect(parseWinlinkModes("VARA FM WIDE", "PUBLIC")).toEqual({ modem: "vara-fm", variant: "WIDE" });
   });
+  it("treats VARA + service code XARA or DATA2G as XARA or Data2G", () => {
+    expect(parseWinlinkModes("VARA", "XARA")).toEqual({ modem: "xara", variant: "2300" });
+    expect(parseWinlinkModes("VARA 500", "xara")).toEqual({ modem: "xara", variant: "500" });
+    expect(parseWinlinkModes("VARA FM WIDE", "XARA")).toEqual({ modem: "xara", variant: "FM WIDE" });
+    expect(parseWinlinkModes("VARA", "DATA2G")).toEqual({ modem: "data2g", variant: "2400" });
+    expect(parseWinlinkModes("VARA 500", "DATA2G")).toEqual({ modem: "data2g", variant: "500" });
+    expect(parseWinlinkModes("VARA 2750", "DATA2G")).toEqual({ modem: "data2g", variant: "2400" });
+  });
   it("native modems round-trip to Winlink's own strings and codes", () => {
     for (const c of fixture.Gateways.flatMap((g: any) => g.GatewayChannels)) {
       const { modem, variant } = parseWinlinkModes(c.SupportedModes, c.ServiceCode);
@@ -90,7 +98,22 @@ describe("compat feed", () => {
     expect(pub).toEqual(["ARDOP 500"]);
     const merc = toWinlinkStatus([own], { ...query, serviceCodes: ["PUBLIC", "MERCURY"] }, fixtureNow).Gateways[0]!.GatewayChannels;
     expect(merc.map((c) => [c.SupportedModes, c.ServiceCode])).toEqual([["VARA", "MERCURY"], ["ARDOP 500", "PUBLIC"]]);
-    expect(compatChannel(own, mk("data2g"))).toBeNull();
+    expect(compatChannel(own, mk("modem73"))).toBeNull();
+    const xd: GatewayView = { ...own, channels: [mk("xara"), mk("xara", { variant: "FM WIDE" }), mk("data2g", { variant: "500" }), mk("data2g")] };
+    expect(toWinlinkStatus([xd], query, fixtureNow).Gateways).toEqual([]);
+    const both = toWinlinkStatus([xd], { ...query, serviceCodes: ["PUBLIC", "XARA", "DATA2G"] }, fixtureNow).Gateways[0]!.GatewayChannels;
+    expect(both.map((c) => [c.SupportedModes, c.Mode, c.ServiceCode])).toEqual([
+      ["VARA", 9006, "XARA"], ["VARA FM WIDE", 9006, "XARA"], ["VARA 500", 9002, "DATA2G"], ["VARA", 9002, "DATA2G"]]);
+  });
+
+  it("passes Winlink-listed XARA and DATA2G channels through with their own codes", () => {
+    const listed = { Gateways: [{ ...fixture.Gateways[0], GatewayChannels: [
+      { ...fixture.Gateways[0].GatewayChannels[0], SupportedModes: "VARA", Mode: 50, ServiceCode: "XARA" },
+      { ...fixture.Gateways[0].GatewayChannels[0], SupportedModes: "VARA 500", Mode: 53, ServiceCode: "DATA2G" }] }] };
+    const views = fromWinlink(listed);
+    expect(views[0]!.channels.map((c) => c.modem)).toEqual(["xara", "data2g"]);
+    const out = toWinlinkStatus(views, { ...query, serviceCodes: ["XARA", "DATA2G"] }, fixtureNow).Gateways[0]!.GatewayChannels;
+    expect(out.map((c) => [c.SupportedModes, c.Mode, c.ServiceCode])).toEqual([["VARA", 50, "XARA"], ["VARA 500", 53, "DATA2G"]]);
   });
 
   it("names cache files the way Pat does", () => {

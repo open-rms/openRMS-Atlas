@@ -33,7 +33,7 @@ const schema = z.object({
   WINLINK_FIXTURE: z.string().optional(),
   /** Development: command run before each fixture import to refresh it (e.g. scripts/fetch-winlink-via-pat.sh). */
   WINLINK_FIXTURE_REFRESH_CMD: z.string().optional(),
-  WINLINK_SERVICE_CODES: z.string().default("PUBLIC,MERCURY,EMCOMM"),
+  WINLINK_SERVICE_CODES: z.string().default("PUBLIC,MERCURY,XARA,DATA2G,EMCOMM"),
   WINLINK_POLL_MINUTES: z.coerce.number().min(15).default(60),
   /** Include Winlink-sourced listings in public API, dumps and the compat feed. */
   WINLINK_PUBLISH: z.stringbool().default(true),

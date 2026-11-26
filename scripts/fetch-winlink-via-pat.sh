@@ -6,11 +6,11 @@
 #
 # Usage: [FORCE=1] scripts/fetch-winlink-via-pat.sh [OUT]   (default backups/winlink-gateway-status.latest.json)
 # Skips the download when the snapshot is less than 50 minutes old, unless FORCE=1.
-# Service codes: WINLINK_SERVICE_CODES (default PUBLIC,MERCURY,EMCOMM), merged into one file.
+# Service codes: WINLINK_SERVICE_CODES (default PUBLIC,MERCURY,XARA,DATA2G,EMCOMM), merged into one file.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=${1:-backups/winlink-gateway-status.latest.json}
-CODES=${WINLINK_SERVICE_CODES:-PUBLIC,MERCURY,EMCOMM}
+CODES=${WINLINK_SERVICE_CODES:-PUBLIC,MERCURY,XARA,DATA2G,EMCOMM}
 command -v pat >/dev/null || { echo "pat not installed" >&2; exit 1; }
 # Dev servers restart often; don't download again if the snapshot is fresh (FORCE=1 overrides).
 if [ -z "${FORCE:-}" ] && [ -n "$(find "$OUT" -mmin -50 2>/dev/null)" ]; then

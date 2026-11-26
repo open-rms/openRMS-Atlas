@@ -64,6 +64,8 @@ export const channel = pgTable(
     variant: text(),
     modemVersion: text("modem_version"),
     serviceCode: text("service_code").default("PUBLIC").notNull(),
+    // More service codes the same channel is listed under (e.g. PUBLIC plus a group code).
+    extraServiceCodes: text("extra_service_codes").array().default(sql`'{}'::text[]`).notNull(),
     operatingHours: text("operating_hours").default("00-23").notNull(),
     antenna: text().default("").notNull(),
     radioRange: text("radio_range").default("").notNull(),
@@ -81,6 +83,25 @@ export const channel = pgTable(
     index("channel_modem").on(t.modem),
     foreignKey({ columns: [t.gatewayId], foreignColumns: [gateway.id], name: "channel_gateway_id_fkey" }).onDelete("cascade"),
     check("channel_frequency_hz_check", sql`frequency_hz > 0`),
+  ],
+);
+
+// Service codes and who may see them. "public" codes are listed (filter chips, stats, dumps).
+// "unlisted" codes are never enumerated and match only an exact ?serviceCode= request.
+// Unlisted means not listed, not secret. A code nobody has seen yet starts unlisted; staff promote it.
+export const serviceCode = pgTable(
+  "service_code",
+  {
+    code: text().primaryKey(),
+    visibility: text().default("unlisted").notNull(),
+    description: text().default("").notNull(),
+    createdAt: ts("created_at").defaultNow().notNull(),
+    updatedAt: ts("updated_at").defaultNow().notNull(),
+    updatedBy: text("updated_by"),
+  },
+  () => [
+    check("service_code_code_check", sql`code ~ '^[A-Z0-9]{1,16}$'`),
+    check("service_code_visibility_check", sql`visibility IN ('public', 'unlisted')`),
   ],
 );
 

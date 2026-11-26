@@ -1,7 +1,8 @@
 // Winlink-compatible feed for Pat, EmComm Tools, PatMenu and anything else that
 // reads api.winlink.org's gateway/status.json shape.
 import { Hono, type Context } from "hono";
-import { publicDirectory } from "../data.js";
+import { parseCodes, publicDirectory, publicServiceCodes } from "../data.js";
+import { limitUnlisted, nonPublic, recordMiss } from "../lib/codelimit.js";
 import { env } from "../env.js";
 import { parseRequestedMode, patCacheFileName, stringifyWinlink, toWinlinkStatus } from "../compat/winlink-status.js";
 
@@ -27,10 +28,16 @@ async function params(c: Context): Promise<Record<string, string[]>> {
 async function feed(c: Context, asFile: boolean) {
   const p = await params(c);
   // ServiceCodes may be repeated (Pat) or comma-separated; "key" is accepted and ignored.
-  const serviceCodes = (p.servicecodes ?? []).flatMap((s) => s.split(/[,\s]+/)).filter(Boolean).map((s) => s.toUpperCase());
+  const serviceCodes = [...parseCodes(p.servicecodes)];
+  // An unlisted code is served only when asked for by name; asking is rate-limited per IP.
+  const hidden = nonPublic(new Set(serviceCodes), await publicServiceCodes());
+  if (hidden.length) {
+    const limited = limitUnlisted(c, hidden);
+    if (limited) return limited;
+  }
   const hh = Number(p.historyhours?.[0]);
   const source = p.source?.[0];
-  let gateways = await publicDirectory();
+  let gateways = await publicDirectory(new Set(hidden));
   if (source === "openrms" || source === "winlink") gateways = gateways.filter((g) => g.source === source);
   const doc = toWinlinkStatus(gateways, {
     mode: parseRequestedMode(p.mode?.[0]),
@@ -40,9 +47,11 @@ async function feed(c: Context, asFile: boolean) {
     requireVerified: env.COMPAT_REQUIRE_VERIFIED,
     publicBaseUrl: env.PUBLIC_URL,
   });
+  if (hidden.length && !doc.Gateways.some((g) => g.GatewayChannels.some((ch) => hidden.includes(ch.ServiceCode)))) recordMiss(c, hidden);
   const headers: Record<string, string> = {
     "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "public, max-age=300",
+    // Answers to non-public codes stay out of shared caches, where the rate limit can't see them.
+    "Cache-Control": hidden.length ? "private, no-store" : "public, max-age=300",
     "Access-Control-Allow-Origin": "*",
   };
   if (asFile) headers["Content-Disposition"] = `attachment; filename="${patCacheFileName(serviceCodes.length ? serviceCodes : ["PUBLIC"])}"`;

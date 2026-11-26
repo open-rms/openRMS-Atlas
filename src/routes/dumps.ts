@@ -52,7 +52,7 @@ dumpRoutes.get("/latest.csv", async (c) => {
   for (const g of await publicDirectory()) {
     for (const ch of g.channels) {
       lines.push([g.callsign, g.baseCallsign, g.source, g.status, g.latitude, g.longitude, ch.gridsquare ?? g.gridsquare, ch.frequencyHz,
-        ch.band, ch.modem, ch.variant, ch.serviceCode, ch.operatingHours, g.lastSeenAt, g.ownerVerified].map(csvCell).join(","));
+        ch.band, ch.modem, ch.variant, (ch.serviceCodes ?? []).join(" "), ch.operatingHours, g.lastSeenAt, g.ownerVerified].map(csvCell).join(","));
     }
   }
   return etagged(lines.join("\n") + "\n", "text/csv; charset=utf-8", c.req.header("if-none-match"), "openrms-channels.csv");

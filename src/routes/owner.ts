@@ -142,13 +142,17 @@ async function writeChannels(cl: PoolClient, gatewayId: string, input: GatewayIn
   await cl.query(`DELETE FROM channel WHERE gateway_id = $1`, [gatewayId]);
   for (const ch of input.channels) {
     await cl.query(
-      `INSERT INTO channel (gateway_id, frequency_hz, modem, variant, modem_version, service_code, operating_hours, antenna,
-                            radio_range, gridsquare, baud, notes, compat_supported_modes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [gatewayId, ch.frequencyHz, ch.modem, ch.variant ?? null, ch.modemVersion ?? null, ch.serviceCode, ch.operatingHours,
-       ch.antenna, ch.radioRange, ch.gridsquare ?? input.gridsquare, ch.baud, ch.notes, ch.compatSupportedModes ?? null],
+      `INSERT INTO channel (gateway_id, frequency_hz, modem, variant, modem_version, service_code, extra_service_codes, operating_hours,
+                            antenna, radio_range, gridsquare, baud, notes, compat_supported_modes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      [gatewayId, ch.frequencyHz, ch.modem, ch.variant ?? null, ch.modemVersion ?? null, ch.serviceCode, ch.extraServiceCodes,
+       ch.operatingHours, ch.antenna, ch.radioRange, ch.gridsquare ?? input.gridsquare, ch.baud, ch.notes, ch.compatSupportedModes ?? null],
     );
   }
+  // A code nobody has used yet is registered as unlisted: it works at once, but is never
+  // enumerated until staff make it public.
+  const codes = [...new Set(input.channels.flatMap((ch) => [ch.serviceCode, ...ch.extraServiceCodes]))];
+  await cl.query(`INSERT INTO service_code (code) SELECT unnest($1::text[]) ON CONFLICT (code) DO NOTHING`, [codes]);
 }
 
 ownerRoutes.post("/me/gateways", async (c) => {

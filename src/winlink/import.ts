@@ -8,7 +8,7 @@ import { gunzipSync } from "node:zlib";
 import { env } from "../env.js";
 import { tx, q } from "../db/pool.js";
 import { parseWinlinkModes } from "../modes.js";
-import { invalidateDirectory } from "../data.js";
+import { invalidateDirectory, publicServiceCodes } from "../data.js";
 
 const WINLINK_URL = "https://api.winlink.org/gateway/status.json";
 
@@ -21,7 +21,18 @@ interface WlGateway {
   LastStatus: string; Comments: string; GatewayChannels: WlChannel[];
 }
 
-export async function fetchWinlink(): Promise<WlGateway[]> {
+/**
+ * The configured codes that may be imported: only public ones. Private group codes (MARS,
+ * SHARES, agency codes) must never be fetched; if one is configured by mistake it is skipped.
+ */
+export async function importableCodes(): Promise<{ codes: string[]; skipped: number; pub: Set<string> }> {
+  const pub = await publicServiceCodes();
+  const configured = [...new Set(env.WINLINK_SERVICE_CODES.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean))];
+  const codes = configured.filter((c) => pub.has(c));
+  return { codes, skipped: configured.length - codes.length, pub };
+}
+
+export async function fetchWinlink(codes: string[]): Promise<WlGateway[]> {
   let text: string;
   if (env.WINLINK_FIXTURE) {
     if (env.WINLINK_FIXTURE_REFRESH_CMD) {
@@ -37,7 +48,7 @@ export async function fetchWinlink(): Promise<WlGateway[]> {
     text = (env.WINLINK_FIXTURE.endsWith(".gz") ? gunzipSync(buf) : buf).toString("utf8");
   } else if (env.WINLINK_API_KEY) {
     const params = new URLSearchParams({ Mode: "AnyAll", HistoryHours: "48", key: env.WINLINK_API_KEY });
-    for (const c of env.WINLINK_SERVICE_CODES.split(",").map((s) => s.trim()).filter(Boolean)) params.append("ServiceCodes", c);
+    for (const c of codes) params.append("ServiceCodes", c);
     const res = await fetch(WINLINK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "openrms-atlas/0.1" },
@@ -58,7 +69,13 @@ export async function importWinlink(opts: { force?: boolean } = {}): Promise<{ g
   const run = await q<{ id: number }>(`INSERT INTO import_run (source) VALUES ('winlink') RETURNING id`);
   const runId = run.rows[0]!.id;
   try {
-    const gateways = await fetchWinlink();
+    const { codes, skipped, pub } = await importableCodes();
+    if (skipped) console.warn(`[winlink] ${skipped} configured service code(s) skipped: only public codes are imported`);
+    if (codes.length === 0) throw new Error("no public service codes configured in WINLINK_SERVICE_CODES");
+    // Keep only channels under public codes (a snapshot may hold others), and drop gateways left empty.
+    const gateways = (await fetchWinlink(codes))
+      .map((g) => ({ ...g, GatewayChannels: (g.GatewayChannels ?? []).filter((ch) => pub.has(String(ch.ServiceCode || "PUBLIC").trim().toUpperCase())) }))
+      .filter((g) => g.GatewayChannels.length > 0);
     // Guard: an empty or truncated response would mark every Winlink row removed.
     const last = await q<{ gateways: number }>(
       `SELECT gateways FROM import_run WHERE source = 'winlink' AND ok AND gateways > 0 ORDER BY id DESC LIMIT 1`,

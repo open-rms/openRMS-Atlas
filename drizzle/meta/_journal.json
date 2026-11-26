@@ -29,6 +29,13 @@
       "when": 1795655901665,
       "tag": "0003_drop_auth_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795682059536,
+      "tag": "0004_service_codes",
+      "breakpoints": true
     }
   ]
 }

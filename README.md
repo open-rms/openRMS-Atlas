@@ -33,6 +33,7 @@ scripts/watch-smoke.sh        # watcher keys, ingest, callsign list, moderation 
 scripts/watch-b-smoke.sh      # sightings, heardOnAir, contributors (17)
 scripts/watch-c-smoke.sh      # events, live stream, client-callsign privacy (15)
 scripts/watch-d-smoke.sh      # watcher linking with a device-flow token (10)
+scripts/servicecode-smoke.sh  # custom service codes, unlisted visibility, staff promotion (25)
 ```
 
 `.env.example` imports a bundled sample (`fixtures/`) for development. It is synthetic: the
@@ -99,6 +100,10 @@ expected.
   (`pnpm cli import-winlink --force` overrides).
 - Compat feed: Mercury, XARA and Data2G appear as `VARA` under service codes `MERCURY`, `XARA` and `DATA2G` (never `PUBLIC`). The Winlink import requests those codes too.
   Modes no client can dial yet (modem73, ION HF, FreeDATA) are left out. `SupportedModes` is never empty.
+- Custom service codes: sysops can list a channel under any code (main code plus up to 8 extra).
+  New codes start **unlisted**: never enumerated (chips, stats, dumps, code lists) and matched
+  only by an exact `?serviceCode=` / `ServiceCodes` request, rate-limited per IP. Unlisted is
+  not secret. Staff make codes public. Spec: `openRMS-Spec/atlas/service-codes.md`.
 
 ## Database and migrations (Drizzle)
 

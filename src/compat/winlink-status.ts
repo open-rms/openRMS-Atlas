@@ -83,31 +83,40 @@ function modeMatches(rm: RequestedMode, ch: ChannelView): boolean {
   }
 }
 
+/** Service codes everyone's clients use with stock VARA/ARDOP. A borrowed-protocol mode never lands under these. */
+export const STANDARD_CODES = new Set(["PUBLIC", "EMCOMM"]);
+
+/** The channel's stored codes: its main code first, then the extra ones, uppercased and de-duplicated. */
+export function storedServiceCodes(ch: ChannelView): string[] {
+  return [...new Set([ch.serviceCode, ...(ch.extraServiceCodes ?? [])].map((c) => c.trim().toUpperCase()).filter(Boolean))];
+}
+
 /** How one channel appears in the compat feed, or null when no client could dial it. */
-export function compatChannel(gw: GatewayView, ch: ChannelView): { supportedModes: string; mode: number; serviceCode: string } | null {
+export function compatChannel(gw: GatewayView, ch: ChannelView): { supportedModes: string; mode: number; serviceCodes: string[] } | null {
   if (gw.source === "winlink" && ch.winlinkSupportedModes) {
-    return { supportedModes: ch.winlinkSupportedModes, mode: ch.winlinkMode ?? 0, serviceCode: ch.serviceCode };
+    return { supportedModes: ch.winlinkSupportedModes, mode: ch.winlinkMode ?? 0, serviceCodes: [ch.serviceCode.toUpperCase()] };
   }
   const modem = getModem(ch.modem);
   const rule = modem?.compat(ch.variant) ?? null;
   const override = ch.compatSupportedModes?.trim();
-  if (override) {
-    // Owner-chosen string. A waveform Winlink does not carry must never land under PUBLIC,
-    // or default clients would dial a gateway their modem cannot reach.
-    const forced = rule?.serviceCode ?? (modem?.winlinkNative ? undefined : ch.modem.toUpperCase().replace(/-/g, ""));
-    return { supportedModes: override, mode: rule?.mode ?? 9999, serviceCode: forced ?? ch.serviceCode };
-  }
+  // Modes that borrow another modem's host protocol (Mercury, XARA, Data2G) get their own code
+  // in place of PUBLIC/EMCOMM, so default clients never dial a gateway their modem can't reach.
+  // Custom (group) codes stay as the sysop typed them: the group knows what it is dialing.
+  const forced = override
+    ? rule?.serviceCode ?? (modem?.winlinkNative ? undefined : ch.modem.toUpperCase().replace(/-/g, ""))
+    : rule?.serviceCode;
+  const codes = (list: string[]) => [...new Set(list.map((c) => (forced && STANDARD_CODES.has(c) ? forced : c)))];
+  if (override) return { supportedModes: override, mode: rule?.mode ?? 9999, serviceCodes: codes(storedServiceCodes(ch)) };
   if (!rule || !rule.supportedModes.trim()) return null; // Pat panics on an empty SupportedModes
-  return { supportedModes: rule.supportedModes, mode: rule.mode, serviceCode: rule.serviceCode ?? ch.serviceCode };
+  return { supportedModes: rule.supportedModes, mode: rule.mode, serviceCodes: codes(storedServiceCodes(ch)) };
 }
 
 /**
- * The service code a channel is published under in the compat feed. Modes that borrow the VARA
- * host protocol (Mercury, XARA, Data2G) are forced to their own code even if the sysop typed PUBLIC.
- * Channels the feed leaves out keep their stored code.
+ * The service codes a channel is published under: the compat feed's codes, or the stored codes
+ * for channels the feed leaves out. Mercury/XARA/Data2G typed as PUBLIC count as their own code.
  */
-export function feedServiceCode(gw: GatewayView, ch: ChannelView): string {
-  return (compatChannel(gw, ch)?.serviceCode ?? ch.serviceCode).toUpperCase();
+export function feedServiceCodes(gw: GatewayView, ch: ChannelView): string[] {
+  return compatChannel(gw, ch)?.serviceCodes ?? storedServiceCodes(ch);
 }
 
 export function toWinlinkStatus(gateways: GatewayView[], query: CompatQuery, now = new Date()): WinlinkStatusDoc {
@@ -128,21 +137,25 @@ export function toWinlinkStatus(gateways: GatewayView[], query: CompatQuery, now
     for (const ch of gw.channels) {
       if (!modeMatches(query.mode, ch)) continue;
       const c = compatChannel(gw, ch);
-      if (!c || !codes.has(c.serviceCode.toUpperCase())) continue;
-      const stamp = lastSeen ?? new Date(gw.updatedAt);
-      channels.push({
-        Timestamp: dotnetDate(stamp),
-        SupportedModes: c.supportedModes,
-        Mode: c.mode,
-        Gridsquare: ch.gridsquare || gw.gridsquare || "",
-        Frequency: Math.round(ch.frequencyHz),
-        OperatingHours: ch.operatingHours || "00-23",
-        Baud: ch.baud || "0",
-        RadioRange: ch.radioRange || "",
-        Antenna: ch.antenna || "",
-        ServiceCode: c.serviceCode,
-        ...(query.extensions ? { OpenRMS: { modem: ch.modem, variant: ch.variant, modemVersion: ch.modemVersion } } : {}),
-      });
+      if (!c) continue;
+      // One entry per requested code the channel carries, the way Winlink lists them.
+      for (const code of c.serviceCodes) {
+        if (!codes.has(code)) continue;
+        const stamp = lastSeen ?? new Date(gw.updatedAt);
+        channels.push({
+          Timestamp: dotnetDate(stamp),
+          SupportedModes: c.supportedModes,
+          Mode: c.mode,
+          Gridsquare: ch.gridsquare || gw.gridsquare || "",
+          Frequency: Math.round(ch.frequencyHz),
+          OperatingHours: ch.operatingHours || "00-23",
+          Baud: ch.baud || "0",
+          RadioRange: ch.radioRange || "",
+          Antenna: ch.antenna || "",
+          ServiceCode: code,
+          ...(query.extensions ? { OpenRMS: { modem: ch.modem, variant: ch.variant, modemVersion: ch.modemVersion } } : {}),
+        });
+      }
     }
     if (channels.length === 0) continue;
 

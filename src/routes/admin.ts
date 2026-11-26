@@ -160,3 +160,43 @@ adminRoutes.delete("/optouts/:callsign", need({ optout: ["manage"] }), async (c)
   await audit(c, "optout.remove", c.req.param("callsign").toUpperCase());
   return c.body(null, 204);
 });
+
+// ── Service codes ──────────────────────────────────────────────────────────────────────
+// Staff see every code, including unlisted ones, with how much it is used. Making a code
+// public lists it in filter chips, stats and dumps; making it unlisted hides it again.
+
+adminRoutes.get("/service-codes", need({ servicecode: ["view"] }), async (c) => {
+  const { rows } = await q(
+    `SELECT s.code, s.visibility, s.description, s.created_at AS "createdAt", s.updated_at AS "updatedAt", s.updated_by AS "updatedBy",
+            count(ch.id)::int AS channels, count(DISTINCT ch.gateway_id)::int AS gateways
+       FROM service_code s
+       LEFT JOIN channel ch ON (ch.service_code = s.code OR s.code = ANY(ch.extra_service_codes))
+            AND EXISTS (SELECT 1 FROM gateway g WHERE g.id = ch.gateway_id AND g.removed_at IS NULL)
+      GROUP BY s.code ORDER BY (s.visibility = 'public') DESC, gateways DESC, s.code`,
+  );
+  return c.json({ serviceCodes: rows });
+});
+
+adminRoutes.patch("/service-codes/:code", need({ servicecode: ["edit"] }), async (c) => {
+  const code = c.req.param("code").toUpperCase();
+  const body = (await c.req.json().catch(() => ({}))) as { visibility?: string; description?: string };
+  if (body.visibility !== undefined && !["public", "unlisted"].includes(body.visibility)) {
+    return c.json({ error: "visibility must be public or unlisted" }, 400);
+  }
+  if (body.description !== undefined && (typeof body.description !== "string" || body.description.length > 300)) {
+    return c.json({ error: "description must be text up to 300 characters" }, 400);
+  }
+  if (body.visibility === "unlisted" && ["PUBLIC", "EMCOMM"].includes(code)) {
+    return c.json({ error: `${code} is a standard Winlink code and stays public` }, 400);
+  }
+  const { rows } = await q(
+    `UPDATE service_code SET visibility = COALESCE($2, visibility), description = COALESCE($3, description),
+            updated_at = now(), updated_by = $4
+      WHERE code = $1 RETURNING code, visibility, description`,
+    [code, body.visibility ?? null, body.description?.trim() ?? null, c.get("userId")],
+  );
+  if (!rows[0]) return c.json({ error: "unknown service code" }, 404);
+  invalidateDirectory();
+  await audit(c, "servicecode.update", code, { visibility: body.visibility, description: body.description });
+  return c.json(rows[0]);
+});

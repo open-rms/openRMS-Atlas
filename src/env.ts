@@ -33,6 +33,14 @@ const schema = z.object({
   WINLINK_FIXTURE: z.string().optional(),
   /** Development: command run before each fixture import to refresh it (e.g. scripts/fetch-winlink-via-pat.sh). */
   WINLINK_FIXTURE_REFRESH_CMD: z.string().optional(),
+  /**
+   * Headers that carry the real client IP, in order, e.g. "cf-connecting-ip" behind Cloudflare.
+   * Honoured only when the request arrives from loopback (the local reverse proxy), since any
+   * client can send them. Empty: use the socket address.
+   */
+  TRUSTED_IP_HEADERS: z.string().default(""),
+  /** Distinct non-public service codes one IP may look up per hour (makes guessing codes slow). */
+  UNLISTED_CODES_PER_HOUR: z.coerce.number().int().positive().default(60),
   WINLINK_SERVICE_CODES: z.string().default("PUBLIC,MERCURY,XARA,DATA2G,EMCOMM"),
   WINLINK_POLL_MINUTES: z.coerce.number().min(15).default(60),
   /** Include Winlink-sourced listings in public API, dumps and the compat feed. */

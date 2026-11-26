@@ -4,6 +4,7 @@ import { q } from "./db/pool.js";
 import { env } from "./env.js";
 import { bandOf, getModem, type ModemId } from "./modes.js";
 import { gridToLatLon } from "./lib/callsign.js";
+import { feedServiceCodes } from "./compat/winlink-status.js";
 
 export type Source = "openrms" | "winlink";
 export type Status = "online" | "listed" | "stale" | "offline";
@@ -16,7 +17,12 @@ export interface ChannelView {
   modemLabel: string;
   variant: string | null;
   modemVersion: string | null;
+  /** Stored main code. Public output replaces it with serviceCodes[0] (see publicDirectory). */
   serviceCode: string;
+  /** Stored extra codes. Never in public output. */
+  extraServiceCodes: string[];
+  /** Set by publicDirectory: the codes this channel is published under that the request may see. */
+  serviceCodes?: string[];
   operatingHours: string;
   antenna: string;
   radioRange: string;
@@ -103,10 +109,12 @@ function publicLocation(r: any): { lat: number | null; lon: number | null; grid:
 }
 
 let cache: { at: number; all: GatewayView[] } | null = null;
+let codeCache: { at: number; codes: Map<string, { visibility: string; description: string }> } | null = null;
 const CACHE_MS = 30_000;
 
 export function invalidateDirectory() {
   cache = null;
+  codeCache = null;
 }
 
 /** All gateways (including hidden ones), de-duplicated. Callers filter for public use. */
@@ -135,6 +143,7 @@ export async function loadDirectory(): Promise<GatewayView[]> {
       variant: c.variant,
       modemVersion: c.modem_version,
       serviceCode: c.service_code,
+      extraServiceCodes: c.extra_service_codes ?? [],
       operatingHours: c.operating_hours,
       antenna: c.antenna,
       radioRange: c.radio_range,
@@ -210,6 +219,49 @@ export async function loadDirectory(): Promise<GatewayView[]> {
   return all;
 }
 
-export async function publicDirectory(): Promise<GatewayView[]> {
-  return (await loadDirectory()).filter((g) => !g.hidden);
+/** Every known service code with its visibility. Staff and internal use only. */
+export async function serviceCodeTable(): Promise<Map<string, { visibility: string; description: string }>> {
+  if (codeCache && Date.now() - codeCache.at < CACHE_MS) return codeCache.codes;
+  const { rows } = await q<{ code: string; visibility: string; description: string }>(`SELECT code, visibility, description FROM service_code`);
+  const codes = new Map(rows.map((r) => [r.code, { visibility: r.visibility, description: r.description }]));
+  codeCache = { at: Date.now(), codes };
+  return codes;
+}
+
+export async function publicServiceCodes(): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const [code, v] of await serviceCodeTable()) if (v.visibility === "public") out.add(code);
+  return out;
+}
+
+/** Normalise a ?serviceCode= value (comma or space separated) to a set of uppercase codes. */
+export function parseCodes(v: string | string[] | undefined): Set<string> {
+  return new Set([v ?? []].flat().flatMap((s) => s.split(/[,\s]+/)).map((s) => s.trim().toUpperCase()).filter(Boolean));
+}
+
+/**
+ * Gateways as the public may see them. A channel shows only the codes that are public or that
+ * this request named exactly (`requested`); a channel with none left is dropped, and so is a
+ * gateway left with no channels. Unlisted codes are therefore never enumerated: they only
+ * match an exact request. Each channel carries `serviceCodes` (its visible codes).
+ */
+export async function publicDirectory(requested: Set<string> = new Set()): Promise<GatewayView[]> {
+  const [all, pub] = await Promise.all([loadDirectory(), publicServiceCodes()]);
+  return projectPublic(all, pub, requested);
+}
+
+/** The visibility rule behind publicDirectory, without the database. */
+export function projectPublic(all: GatewayView[], pub: Set<string>, requested: Set<string> = new Set()): GatewayView[] {
+  const out: GatewayView[] = [];
+  for (const g of all) {
+    if (g.hidden) continue;
+    const channels: ChannelView[] = [];
+    for (const ch of g.channels) {
+      const visible = feedServiceCodes(g, ch).filter((c) => pub.has(c) || requested.has(c));
+      if (visible.length) channels.push({ ...ch, serviceCodes: visible });
+    }
+    if (channels.length === 0 && g.channels.length > 0) continue;
+    out.push({ ...g, channels });
+  }
+  return out;
 }

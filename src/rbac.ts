@@ -3,7 +3,8 @@
 // assigning roles, live in Accounts.
 //
 //   superadmin, admin  everything here, including the client-callsign setting and the audit log
-//   moderator          hide listings, resolve reports, moderate watchers, manage opt-outs, view imports
+//   moderator          hide listings, resolve reports, moderate watchers, manage opt-outs, view imports,
+//                      see every service code (including unlisted ones)
 //   user               nothing beyond their own and their clubs' gateways and watchers
 
 export const statements = {
@@ -14,6 +15,7 @@ export const statements = {
   watcher: ["list", "disable", "purge", "view-clients"],
   setting: ["edit"],
   optout: ["manage"],
+  servicecode: ["view", "edit"],
 } as const;
 
 type Statements = typeof statements;
@@ -27,6 +29,7 @@ const moderator: Perms = {
   import: ["view"],
   watcher: ["list", "disable", "purge"],
   optout: ["manage"],
+  servicecode: ["view"],
 };
 const admin: Perms = {
   gateway: ["hide", "edit-any"],
@@ -36,6 +39,7 @@ const admin: Perms = {
   watcher: ["list", "disable", "purge", "view-clients"],
   setting: ["edit"],
   optout: ["manage"],
+  servicecode: ["view", "edit"],
 };
 const ROLES: Record<RoleName, Perms> = { user: {}, moderator, admin, superadmin: admin };
 

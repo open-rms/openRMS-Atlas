@@ -164,6 +164,8 @@ the original.
   `ACCOUNTS_WEBHOOK_SECRET` (from `pnpm cli add-webhook directory <api-url>/api/v1/hooks/accounts`
   in openRMS-Accounts) and `ACCOUNTS_CLIENT_ID`/`ACCOUNTS_CLIENT_SECRET` for the reconcile. The
   public openRMS deployment uses `https://auth.openrms.dev` and `https://directory.openrms.dev`.
+- `HOST` (default `127.0.0.1`) and `PORT` (default 8787): keep `HOST=127.0.0.1` with the reverse
+  proxy on the same host; use `0.0.0.0` only when the proxy runs elsewhere.
 - The Site calls this API with Bearer tokens (no cookies); set `TRUSTED_ORIGINS` to the Site's
   origin for CORS.
 - `pnpm build && pnpm start` runs the compiled server.

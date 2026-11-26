@@ -8,4 +8,6 @@ import { startAccountsReconcile } from "./accounts/reconcile.js";
 await migrate();
 startWinlinkPoller();
 startAccountsReconcile();
-serve({ fetch: createApp().fetch, port: env.PORT }, (i) => console.log(`openRMS Directory on http://localhost:${i.port}`));
+serve({ fetch: createApp().fetch, port: env.PORT, hostname: env.HOST }, (i) =>
+  console.log(`openRMS Directory listening on ${i.address}:${i.port}`),
+);

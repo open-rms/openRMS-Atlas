@@ -3,6 +3,12 @@ import { z } from "zod";
 const schema = z.object({
   DATABASE_URL: z.string().default("postgres://openrms:openrms@127.0.0.1:5442/openrms"),
   PORT: z.coerce.number().default(8787),
+  /**
+   * Interface to listen on. Default 127.0.0.1: only a reverse proxy on the same host can reach
+   * the API. Use 0.0.0.0 (or ::) only when something outside the host must connect directly,
+   * e.g. a container whose proxy runs elsewhere.
+   */
+  HOST: z.string().default("127.0.0.1"),
   /** Public origin of this API (links in API responses and the compat feed). */
   PUBLIC_URL: z.string().default("http://localhost:8787"),
   /** Comma-separated origins allowed to call the API from a browser (the Site). */

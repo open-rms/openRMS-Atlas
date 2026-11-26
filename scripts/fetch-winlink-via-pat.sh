@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# DEVELOPMENT ONLY: refresh the local Winlink gateway snapshot by letting the installed Pat
-# download its own list (Pat uses the key Winlink issued to Pat, for Pat). Production uses the
-# Atlas's own key (WINLINK_API_KEY) instead. Runs Pat in a throwaway data dir, so the
-# user's own Pat cache and config are never touched.
+# STOPGAP: refresh the local Winlink gateway snapshot by letting the installed Pat download its
+# own list (Pat uses the key Winlink issued to Pat, for Pat). Used in development, and to seed
+# pre-launch production until the Atlas has its own key (decided 2026-11-26). Once
+# WINLINK_API_KEY is set, unset WINLINK_FIXTURE/WINLINK_FIXTURE_REFRESH_CMD and stop using this.
+# Runs Pat in a throwaway data dir, so the user's own Pat cache and config are never touched.
 #
 # Usage: [FORCE=1] scripts/fetch-winlink-via-pat.sh [OUT]   (default backups/winlink-gateway-status.latest.json)
 # Skips the download when the snapshot is less than 50 minutes old, unless FORCE=1.

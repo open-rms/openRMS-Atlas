@@ -67,7 +67,7 @@ async function refreshFromClaims(c: AccessClaims) {
 export async function viewerFrom(c: Context): Promise<Viewer | null> {
   const token = bearerToken(c.req.header("authorization"));
   if (!token) return null;
-  const claims = await verifyAccessToken(token, { audience: env.DIRECTORY_AUDIENCE, issuers });
+  const claims = await verifyAccessToken(token, { audience: env.OPENRMS_AUDIENCE, issuers });
   await refreshFromClaims(claims);
   const { rows } = await q<{ callsign: string; callsign_verified: boolean; banned: boolean; name: string | null }>(
     `SELECT callsign, callsign_verified, banned, name FROM account_cache WHERE sub = $1`, [claims.sub],

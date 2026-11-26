@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Identity in the Directory after the Accounts split: token checks, staff permissions from the
+# Identity in Atlas after the Accounts split: token checks, staff permissions from the
 # role claim, Accounts webhooks and the local account cache.
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -11,7 +11,7 @@ say "tokens"
 mint() { curl -s -X POST $ISSUER/mint -d "$1" | jq -r .token; }
 check "wrong audience: 401 wrong_audience" "wrong_audience" "$(curl -s -H "Authorization: Bearer $(mint '{"sub":"sub-N0IDA","callsign":"N0IDA","aud":"https://rigs.openrms.dev"}')" $B/api/v1/me/gateways | jq -r .code)"
 check "expired: 401 expired" "expired" "$(curl -s -H "Authorization: Bearer $(mint "{\"sub\":\"sub-N0IDA\",\"callsign\":\"N0IDA\",\"iat\":$(( $(date +%s) - 7200 )),\"exp\":$(( $(date +%s) - 3600 ))}")" $B/api/v1/me/gateways | jq -r .code)"
-FOREIGN=$(node -e 'const h=Buffer.from(JSON.stringify({alg:"ES256"})).toString("base64url");const p=Buffer.from(JSON.stringify({iss:"https://evil.example",sub:"x",aud:"https://directory.openrms.dev",exp:9999999999})).toString("base64url");console.log(h+"."+p+".sig")')
+FOREIGN=$(node -e 'const h=Buffer.from(JSON.stringify({alg:"ES256"})).toString("base64url");const p=Buffer.from(JSON.stringify({iss:"https://evil.example",sub:"x",aud:"https://atlas.openrms.dev",exp:9999999999})).toString("base64url");console.log(h+"."+p+".sig")')
 check "untrusted issuer: 401" "untrusted_issuer" "$(curl -s -H "Authorization: Bearer $FOREIGN" $B/api/v1/me/gateways | jq -r .code)"
 check "token without callsign claim: 403" 403 "$(code -H "Authorization: Bearer $(mint '{"sub":"sub-N0IDX","callsign":null}')" $B/api/v1/me/gateways)"
 

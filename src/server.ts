@@ -9,5 +9,5 @@ await migrate();
 startWinlinkPoller();
 startAccountsReconcile();
 serve({ fetch: createApp().fetch, port: env.PORT, hostname: env.HOST }, (i) =>
-  console.log(`openRMS Directory listening on ${i.address}:${i.port}`),
+  console.log(`openRMS Atlas listening on ${i.address}:${i.port}`),
 );

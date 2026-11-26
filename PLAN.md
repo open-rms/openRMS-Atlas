@@ -1,9 +1,9 @@
-# openRMS-Directory
+# openRMS-Atlas
 
 **Role:** the open, **API-first** registry of gateways: every mode, real waveforms, emcomm
 readiness, live status, downloadable for offline use. Designed so other apps (Pat, Winlink
 Express plug-ins, mapping tools, emcomm planners) adopt it.
-**Binary:** `openrms-directory` · **License:** AGPL-3.0-or-later
+**Binary:** `openrms-atlas` · **License:** AGPL-3.0-or-later
 
 ## API (OpenAPI 3.1 in openRMS-Spec; Swagger UI and Redoc public)
 
@@ -45,8 +45,8 @@ later. The gateway caches the latest dump so it works offline.
 ## Identity moving to openRMS-Accounts (2026-11-25)
 
 Decided: identity is extracted into openRMS-Accounts (`auth.openrms.dev`, spec
-`openRMS-Spec/accounts/identity.md`). **AC1 done on the Directory and Site side (2026-11-25):**
-Better Auth removed from the Directory; JWT verification via `@openrms/service-auth`; own
+`openRMS-Spec/accounts/identity.md`). **AC1 done on Atlas and Site side (2026-11-25):**
+Better Auth removed from Atlas; JWT verification via `@openrms/service-auth`; own
 `api_key` table (69 existing keys imported, hashes unchanged); account cache fed by webhooks,
 tokens and a 10-minute reconcile; migrations 0002/0003; `POST /api/v1/watch/link`; Site signs in
 at Accounts and sends Bearer tokens. Verified end to end against the running Accounts service
@@ -58,19 +58,19 @@ account pages later.
   clubs (organizations), site roles and the rank guard, device authorization (the `/link` page,
   `device_link`, `/api/v1/watch/link/complete`).
 - **Stays here:** gateways, channels, claims, watchers and watcher events, sightings, the
-  Winlink import and compat feed, `orms_`/`ormsw_` keys, the Directory's own permission table
+  Winlink import and compat feed, `orms_`/`ormsw_` keys, Atlas's own permission table
   (`gateway:hide`, `watcher:purge`, …), the audit log, site settings and opt-outs.
-- **Becomes:** JWT verification against Accounts' JWKS (`aud` = the Directory's audience);
+- **Becomes:** JWT verification against Accounts' JWKS (`aud` = Atlas's audience);
   `owner_user_id`/`owner_org_id` → `owner_sub`/`owner_club_id` (same ids); a local cache of
-  account facts the Directory uses in queries (callsign, verified, banned; for dedupe, sightings
+  account facts Atlas uses in queries (callsign, verified, banned; for dedupe, sightings
   `confirmed`, contributors) kept fresh by Accounts webhooks plus a periodic reconcile; club
-  delete and callsign change handled from webhooks; API keys in the Directory's own table
+  delete and callsign change handled from webhooks; API keys in Atlas's own table
   (existing hashes imported as-is, no rotation). Watcher linking becomes one call with the
-  device token (aud = Directory): `POST /api/v1/watch/link {watcherId} | {name, gridsquare?}`
+  device token (aud = Atlas): `POST /api/v1/watch/link {watcherId} | {name, gridsquare?}`
   → `{key, watcherId, name}`, plus `GET /api/v1/me/watchers` (identity.md §5). Host and
-  audience: `https://directory.openrms.dev` (user's choice, one subdomain per project; the
+  audience: `https://atlas.openrms.dev` (user's choice, one subdomain per project; the
   Site is `openrms.dev`, Accounts `auth.openrms.dev`).
-- Not adopted: a shared-secret introspection endpoint and `ormsr_` keys in the Directory
+- Not adopted: a shared-secret introspection endpoint and `ormsr_` keys in Atlas
   (briefly added for openRMS-Rigs, then removed the same day; Rigs verifies JWTs and mints its
   own keys).
 
@@ -135,5 +135,5 @@ QRZ/HamQTH, LoTW certificate, on-air code) feeding `callsignVerifiedMethod`.
 
 `/gateway/status.json` returns api.winlink.org's shape, so existing clients need no code change.
 Pat reads its cached list, so `pat-rmslist-sync.sh` puts our feed there, and EmComm Tools reads
-the same file. 73 Linux's PatMenu forces a fresh download, so it needs a PatMenu change. Details: `openRMS-Spec/directory/winlink-compat.md`. Next step: propose an
+the same file. 73 Linux's PatMenu forces a fresh download, so it needs a PatMenu change. Details: `openRMS-Spec/atlas/winlink-compat.md`. Next step: propose an
 upstream Pat option for the list URL.

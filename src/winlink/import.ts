@@ -40,7 +40,7 @@ export async function fetchWinlink(): Promise<WlGateway[]> {
     for (const c of env.WINLINK_SERVICE_CODES.split(",").map((s) => s.trim()).filter(Boolean)) params.append("ServiceCodes", c);
     const res = await fetch(WINLINK_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "openrms-directory/0.1" },
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "openrms-atlas/0.1" },
       body: params,
       signal: AbortSignal.timeout(60_000),
     });

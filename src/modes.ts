@@ -2,7 +2,7 @@
 // represented in the Winlink-compatible feed that Pat and other clients read.
 //
 // The authoritative copy of the openRMS mode codes is
-// openRMS-Spec/directory/modes.md. Keep both in sync.
+// openRMS-Spec/atlas/modes.md. Keep both in sync.
 
 export type ModemId =
   | "packet"

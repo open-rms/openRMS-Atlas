@@ -1,6 +1,6 @@
-// Directory staff tools. Every route requires a staff role from the caller's Accounts token
+// Atlas staff tools. Every route requires a staff role from the caller's Accounts token
 // (moderator, admin, superadmin) and the specific permission in src/rbac.ts; actions go to the
-// Directory's audit log. Users, roles, callsign verification and clubs are managed in
+// Atlas's audit log. Users, roles, callsign verification and clubs are managed in
 // openRMS-Accounts.
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";

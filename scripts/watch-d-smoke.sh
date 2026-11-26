@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Watcher linking after the Accounts split (identity.md §5): the device flow runs in Accounts;
-# the watcher then calls the Directory once with its device-flow token (aud = this Directory)
+# the watcher then calls Atlas once with its device-flow token (aud = this Atlas)
 # to pick or create a watcher and receive its ormsw_ key.
 set -uo pipefail
 cd "$(dirname "$0")/.."

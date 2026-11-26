@@ -22,7 +22,7 @@ function etagged(body: string, type: string, ifNoneMatch: string | undefined, fi
 
 dumpRoutes.get("/latest.json", async (c) => {
   const gws = (await publicDirectory()).map((g) => publicGateway(g));
-  const body = JSON.stringify({ format: "openrms-directory-dump", version: 1, generatedAt: new Date().toISOString(), gateways: gws });
+  const body = JSON.stringify({ format: "openrms-atlas-dump", version: 1, generatedAt: new Date().toISOString(), gateways: gws });
   return etagged(body, "application/json; charset=utf-8", c.req.header("if-none-match"), "openrms-gateways.json");
 });
 

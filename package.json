@@ -1,5 +1,5 @@
 {
-  "name": "openrms-directory",
+  "name": "openrms-atlas",
   "version": "0.1.0",
   "description": "Open, API-first directory of radio email gateways, every mode",
   "scripts": {

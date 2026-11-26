@@ -21,7 +21,7 @@ as() {
   printf '%s' "$tok" > "$T/$1.tok"
 }
 
-# hook TYPE DATA-JSON: deliver a signed Accounts webhook to the Directory
+# hook TYPE DATA-JSON: deliver a signed Accounts webhook to Atlas
 hook() {
   local secret; secret=$(grep '^ACCOUNTS_WEBHOOK_SECRET=' .env | cut -d= -f2-)
   local body; body=$(jq -cn --arg id "evt-$(date +%s%N)-$RANDOM" --arg type "$1" --argjson data "$2" '{id:$id, type:$type, createdAt:(now|todate), data:$data}')

@@ -1,4 +1,4 @@
-// Development-only token issuer, so the Directory's tests run without openRMS-Accounts.
+// Development-only token issuer, so Atlas's tests run without openRMS-Accounts.
 // Serves OIDC discovery and JWKS like Accounts does, and mints tokens on POST /mint.
 // NEVER trust this issuer outside local development (it signs whatever it is asked to).
 //
@@ -9,7 +9,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 
 const PORT = Number(process.env.DEV_ISSUER_PORT ?? 8799);
 const ISS = `http://localhost:${PORT}`;
-const AUD = process.env.DIRECTORY_AUDIENCE ?? "https://directory.openrms.dev";
+const AUD = process.env.OPENRMS_AUDIENCE ?? "https://atlas.openrms.dev";
 const { publicKey, privateKey } = await generateKeyPair("ES256");
 const KID = `dev-${Date.now()}`; // new id per start, so verifiers refetch the JWKS instead of using a stale key
 const jwk = { ...(await exportJWK(publicKey)), kid: KID, alg: "ES256", use: "sig" };

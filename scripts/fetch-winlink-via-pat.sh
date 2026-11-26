@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DEVELOPMENT ONLY: refresh the local Winlink gateway snapshot by letting the installed Pat
 # download its own list (Pat uses the key Winlink issued to Pat, for Pat). Production uses the
-# Directory's own key (WINLINK_API_KEY) instead. Runs Pat in a throwaway data dir, so the
+# Atlas's own key (WINLINK_API_KEY) instead. Runs Pat in a throwaway data dir, so the
 # user's own Pat cache and config are never touched.
 #
 # Usage: [FORCE=1] scripts/fetch-winlink-via-pat.sh [OUT]   (default backups/winlink-gateway-status.latest.json)

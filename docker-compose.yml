@@ -1,3 +1,5 @@
+# Project name pinned so the data volume (openrms-directory_openrms-pg) survives the rename.
+name: openrms-directory
 # Development database. Port 5442 avoids clashing with other local Postgres.
 services:
   db:

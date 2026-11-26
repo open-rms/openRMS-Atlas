@@ -1,6 +1,6 @@
-# openRMS-Directory
+# openRMS-Atlas
 
-**Provides:** `openrms-directory`, the open, API-first registry of radio email gateways on every
+**Provides:** `openrms-atlas`, the open, API-first registry of radio email gateways on every
 mode (Winlink's list plus sysop-listed gateways on Mercury, Data2G, modem73, ION HF…), with
 API keys, heartbeats, watcher evidence, dumps, and a **Winlink-compatible feed** that Pat,
 EmComm Tools and 73 Linux can read. · **Consumes:** openRMS-Spec (OpenAPI); PostgreSQL;
@@ -12,7 +12,7 @@ gateway list (your own key). · **Status:** alpha. · **License:** AGPL-3.0-or-l
 > (`"link:"` in `package.json`; publishing it as a package is deferred), and spec paths below
 > point into `../openRMS-Spec` ([github.com/open-rms/openRMS-Spec](https://github.com/open-rms/openRMS-Spec)).
 
-Spec: `../openRMS-Spec/directory/` (`openapi.yaml`, `modes.md`, `winlink-compat.md`).
+Spec: `../openRMS-Spec/atlas/` (`openapi.yaml`, `modes.md`, `winlink-compat.md`).
 Identity: `../openRMS-Accounts` (`../openRMS-Spec/accounts/identity.md`): sign-up, callsigns,
 clubs and staff roles live there. Website: `../openRMS-Site`.
 
@@ -68,7 +68,7 @@ expected.
 ## Rules the code enforces
 
 - **Identity** is an openRMS-Accounts access token (`Authorization: Bearer`), verified offline
-  against the issuer's JWKS (`OPENRMS_ISSUER`) with audience `DIRECTORY_AUDIENCE`. Third-party
+  against the issuer's JWKS (`OPENRMS_ISSUER`) with audience `OPENRMS_AUDIENCE`. Third-party
   client tokens never carry staff power. Owners are stored as Accounts ids (`owner_sub`,
   `owner_club_id`).
 - **Account cache** (`account_cache`, `account_club`, `account_club_member`): facts about other
@@ -78,7 +78,7 @@ expected.
   timed reconcile over Accounts' service API.
 - A gateway's base callsign must be the caller's callsign or one of their clubs' (any SSID).
   Staff with `gateway:edit-any` are exempt.
-- Keys are the Directory's own (`api_key`): kind fixed at creation, stored hashed, per-kind hourly
+- Keys are Atlas's own (`api_key`): kind fixed at creation, stored hashed, per-kind hourly
   rate limit, refused while the owner is banned. A key limited to some gateways only works for those.
 - Every row has `source` = `openrms` or `winlink`. A listing by a **verified** owner replaces
   the Winlink copy of the same callsign. An unverified one is shown next to it
@@ -102,7 +102,10 @@ expected.
 
 ## Database and migrations (Drizzle)
 
-Any PostgreSQL 16+ server works. For anything beyond the dev container, give the Directory its
+> The database and role are still named `openrms_directory` (the project's former name);
+> renaming them is not worth a migration while it's alpha.
+
+Any PostgreSQL 16+ server works. For anything beyond the dev container, give Atlas its
 own role and database: `psql "$ADMIN_DATABASE_URL" -v password="$(openssl rand -base64 24)" -f
 db/bootstrap.sql`, then set `DATABASE_URL` (add `?sslmode=verify-full` for a remote server).
 
@@ -160,10 +163,10 @@ the original.
   and set `WINLINK_API_KEY`. Do not reuse Pat's key. Republishing their list is subject to their
   terms; `WINLINK_PUBLISH=false` turns it off without code changes.
 - **Identity:** defaults are local. Set `OPENRMS_ISSUER` to your openRMS-Accounts URL (never
-  the dev test issuer) and `DIRECTORY_AUDIENCE` to this API's public URL, plus
+  the dev test issuer) and `OPENRMS_AUDIENCE` to this API's public URL, plus
   `ACCOUNTS_WEBHOOK_SECRET` (from `pnpm cli add-webhook directory <api-url>/api/v1/hooks/accounts`
   in openRMS-Accounts) and `ACCOUNTS_CLIENT_ID`/`ACCOUNTS_CLIENT_SECRET` for the reconcile. The
-  public openRMS deployment uses `https://auth.openrms.dev` and `https://directory.openrms.dev`.
+  public openRMS deployment uses `https://auth.openrms.dev` and `https://atlas.openrms.dev`.
 - `HOST` (default `127.0.0.1`) and `PORT` (default 8787): keep `HOST=127.0.0.1` with the reverse
   proxy on the same host; use `0.0.0.0` only when the proxy runs elsewhere.
 - The Site calls this API with Bearer tokens (no cookies); set `TRUSTED_ORIGINS` to the Site's

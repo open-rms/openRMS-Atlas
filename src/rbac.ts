@@ -1,4 +1,4 @@
-// What each site role may do in the Directory. The role itself comes from the caller's
+// What each site role may do in Atlas. The role itself comes from the caller's
 // openRMS-Accounts token (identity.md §4); who holds which role, and the rank rules for
 // assigning roles, live in Accounts.
 //

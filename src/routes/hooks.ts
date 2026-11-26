@@ -1,5 +1,5 @@
 // Accounts webhooks (identity.md §7): keep the local account cache current and apply the
-// Directory-side effects of identity changes. Each event id is applied once.
+// Atlas-side effects of identity changes. Each event id is applied once.
 import { Hono } from "hono";
 import { verifyWebhook, type AccountsEvent } from "@openrms/service-auth";
 import { q, tx } from "../db/pool.js";

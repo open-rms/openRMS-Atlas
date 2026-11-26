@@ -13,7 +13,7 @@ import { dumpRoutes } from "./routes/dumps.js";
 import { hookRoutes } from "./routes/hooks.js";
 import { watcherRoutes, watchRoutes } from "./routes/watch.js";
 
-const specPath = fileURLToPath(new URL("../../openRMS-Spec/directory/openapi.yaml", import.meta.url));
+const specPath = fileURLToPath(new URL("../../openRMS-Spec/atlas/openapi.yaml", import.meta.url));
 
 export function createApp() {
   const app = new Hono();
@@ -44,7 +44,7 @@ export function createApp() {
   app.get("/docs", swaggerUI({ url: "/api/v1/openapi.yaml" }));
   app.get("/healthz", (c) => c.json({ ok: true }));
   app.get("/", (c) => c.json({
-    name: "openRMS Directory",
+    name: "openRMS Atlas",
     docs: "/docs",
     openapi: "/api/v1/openapi.yaml",
     identity: "openRMS Accounts (OPENRMS_ISSUER); send Authorization: Bearer <access token>",

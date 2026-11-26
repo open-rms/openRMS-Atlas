@@ -1,4 +1,4 @@
-// Operator commands for the Directory. Account administration (roles, callsigns, clubs)
+// Operator commands for Atlas. Account administration (roles, callsigns, clubs)
 // lives in openRMS-Accounts.
 import { pool } from "./db/pool.js";
 import { migrate } from "./migrate.js";

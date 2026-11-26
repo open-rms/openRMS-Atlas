@@ -21,7 +21,7 @@ GW=$(curl -s -H @$T/N0CALL "${J[@]}" -X POST $B/api/v1/me/gateways -d '{"callsig
 check "gateway created" true "$([ ${#GW} = 36 ] && echo true)"
 check "listed in /me/gateways" "N0CALL-10" "$(curl -s -H @$T/N0CALL $B/api/v1/me/gateways | jq -r '.gateways[0].callsign')"
 
-say "gateway keys (Directory-owned)"
+say "gateway keys (Atlas-owned)"
 KEY=$(curl -s -H @$T/N0CALL "${J[@]}" -X POST $B/api/v1/me/keys -d "{\"name\":\"gw\",\"gatewayIds\":[\"$GW\"]}" | jq -r .key)
 check "key has orms_ prefix" "orms_" "${KEY:0:5}"
 check "key listed (start only)" "${KEY:0:6}" "$(curl -s -H @$T/N0CALL $B/api/v1/me/keys | jq -r '.keys[0].start')"

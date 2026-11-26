@@ -230,7 +230,7 @@ ownerRoutes.delete("/me/gateways/:id", async (c) => {
   return c.body(null, 204);
 });
 
-// ── Gateway keys (orms_), owned by the Directory (identity.md §5) ───────────────────────
+// ── Gateway keys (orms_), owned by Atlas (identity.md §5) ───────────────────────
 
 ownerRoutes.get("/me/keys", async (c) => {
   const keys = await listKeys(c.get("viewer").sub, "gateway");

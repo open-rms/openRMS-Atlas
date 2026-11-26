@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pat-rmslist-sync: fill Pat's gateway list from an openRMS Directory.
+# pat-rmslist-sync: fill Pat's gateway list from an openRMS Atlas.
 #
 # Pat v1.0.x fetches its list from a fixed address (api.winlink.org) and caches
 # it as $XDG_DATA_HOME/pat/rmslist.json (rmslist-CODE1-CODE2.json when
@@ -15,10 +15,10 @@
 # script (e.g. from cron) to restore the file.
 #
 # Usage: pat-rmslist-sync.sh [--url https://directory.example] [--codes PUBLIC,MERCURY] [--dry-run]
-# Env:   OPENRMS_DIRECTORY_URL, PAT_CONFIG (path to Pat's config.json)
+# Env:   OPENRMS_ATLAS_URL, PAT_CONFIG (path to Pat's config.json)
 set -euo pipefail
 
-URL="${OPENRMS_DIRECTORY_URL:-http://localhost:8787}"
+URL="${OPENRMS_ATLAS_URL:-http://localhost:8787}"
 CODES=""
 DRY=0
 while [ $# -gt 0 ]; do

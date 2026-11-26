@@ -1,5 +1,5 @@
 // Timed reconcile of the local account cache against openRMS-Accounts (identity.md §6–7),
-// as a safety net for missed webhooks. Uses the Directory's OAuth client (client credentials).
+// as a safety net for missed webhooks. Uses Atlas's OAuth client (client credentials).
 import { q, tx } from "../db/pool.js";
 import { env } from "../env.js";
 import { invalidateDirectory } from "../data.js";

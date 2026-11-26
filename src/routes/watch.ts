@@ -1,6 +1,6 @@
 // Watchers: community openRMS-Watch receivers reporting what they hear on the air.
 // Spec: openRMS-Spec/watch/feed.md. Identity comes from openRMS-Accounts tokens; upload keys
-// (ormsw_) are the Directory's own (identity.md §5).
+// (ormsw_) are Atlas's own (identity.md §5).
 import { Hono, type Context } from "hono";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -363,7 +363,7 @@ watchRoutes.get("/stream", async (c) => {
 
 /**
  * POST /api/v1/watch/link (identity.md §5): the watcher, holding a device-flow access token
- * for this Directory (aud = DIRECTORY_AUDIENCE), picks one of the account's watchers or names a
+ * for this Atlas (aud = OPENRMS_AUDIENCE), picks one of the account's watchers or names a
  * new one, and receives that watcher's ormsw_ key. The watcher then discards the token.
  * Body: { watcherId } | { name, gridsquare?, locationPrecision? }. List choices with GET /api/v1/me/watchers.
  */

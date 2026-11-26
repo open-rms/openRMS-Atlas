@@ -1,4 +1,4 @@
-// openRMS Directory schema (Drizzle). Source of truth for openRMS's own tables.
+// openRMS Atlas schema (Drizzle). Source of truth for openRMS's own tables.
 //
 // Workflow: edit this file → `pnpm db:generate` (writes a versioned SQL migration into
 // ./drizzle, review and commit it) → migrations apply at startup or with `pnpm migrate`.

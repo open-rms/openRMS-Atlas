@@ -2,6 +2,12 @@
 
 Notable changes to the Atlas API and feeds. The contract lives in openRMS-Spec `atlas/`.
 
+## 2026-11-26 (later)
+
+### Fixed
+- The request log no longer writes query strings. It logs only method, path, status and time.
+  It used to log full URLs, so `?serviceCode=` (including unlisted codes) ended up in the journal.
+
 ## 2026-11-26
 
 ### Changed (behavior)

@@ -41,3 +41,15 @@ describe("service code rules", () => {
     expect(can("user", { servicecode: ["view"] })).toBe(false);
   });
 });
+
+describe("request log", () => {
+  it("never writes query strings, so service codes stay out of the journal", async () => {
+    const { requestLogger } = await import("../src/lib/reqlog.js");
+    const lines: string[] = [];
+    const app = new Hono().use("*", requestLogger((l) => lines.push(l))).get("/api/v1/gateways", (c) => c.json({}));
+    await app.request("/api/v1/gateways?serviceCode=ZZSECRET&q=x");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/^GET \/api\/v1\/gateways 200 \d+ms$/);
+    expect(lines[0]).not.toContain("ZZSECRET");
+  });
+});

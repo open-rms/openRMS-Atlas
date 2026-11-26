@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { requestLogger } from "./lib/reqlog.js";
 import { swaggerUI } from "@hono/swagger-ui";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -17,7 +17,7 @@ const specPath = fileURLToPath(new URL("../../openRMS-Spec/atlas/openapi.yaml", 
 
 export function createApp() {
   const app = new Hono();
-  if (process.env.NODE_ENV !== "test") app.use("*", logger());
+  if (process.env.NODE_ENV !== "test") app.use("*", requestLogger());
 
   const origins = env.TRUSTED_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean);
   app.use("/api/v1/*", cors({
